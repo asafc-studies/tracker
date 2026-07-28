@@ -16,8 +16,8 @@ export function FoodSearch({ onSelect, onManual }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<FoodSearchResult | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [mlAmount, setMlAmount] = useState(250);
+  const [quantity, setQuantity] = useState("1");
+  const [mlAmount, setMlAmount] = useState("250");
   const [barcodeMode, setBarcodeMode] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
@@ -101,7 +101,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
           return;
         }
         setSelected(data.food);
-        setQuantity(1);
+        setQuantity("1");
         setBarcodeMode(false);
         setBarcodeInput("");
       } finally {
@@ -208,7 +208,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
         return;
       }
       setSelected(data.food);
-      setQuantity(1);
+      setQuantity("1");
       setBarcodeMode(false);
       setBarcodeInput("");
     } finally {
@@ -218,9 +218,11 @@ export function FoodSearch({ onSelect, onManual }: Props) {
 
   function pickFood(food: FoodSearchResult) {
     setSelected(food);
-    setQuantity(1);
+    setQuantity("1");
     if (food.servingUnit === "ml" && food.servingAmount) {
-      setMlAmount(food.servingAmount);
+      setMlAmount(String(food.servingAmount));
+    } else {
+      setMlAmount("250");
     }
     setOpen(false);
     setQuery(food.name);
@@ -229,24 +231,34 @@ export function FoodSearch({ onSelect, onManual }: Props) {
   function confirmAdd() {
     if (!selected) return;
     if (selected.servingUnit === "ml" && selected.servingAmount) {
-      onSelect(selected, mlAmount / selected.servingAmount, mlAmount);
+      const ml = Number(mlAmount);
+      if (!Number.isFinite(ml) || ml <= 0) return;
+      onSelect(selected, ml / selected.servingAmount, ml);
     } else {
-      onSelect(selected, quantity);
+      const qty = Number(quantity);
+      if (!Number.isFinite(qty) || qty <= 0) return;
+      onSelect(selected, qty);
     }
     setSelected(null);
     setQuery("");
-    setQuantity(1);
-    setMlAmount(250);
+    setQuantity("1");
+    setMlAmount("250");
     fetch("/api/foods/search?recent=1")
       .then((r) => r.json())
       .then((d) => setRecent(d.results ?? []))
       .catch(() => {});
   }
 
+  const quantityNum = Number(quantity);
+  const mlNum = Number(mlAmount);
   const scaled = selected
     ? selected.servingUnit === "ml" && selected.servingAmount
-      ? scaleFood(selected, 1, mlAmount)
-      : scaleFood(selected, quantity)
+      ? Number.isFinite(mlNum) && mlNum > 0
+        ? scaleFood(selected, 1, mlNum)
+        : scaleFood(selected, 1, selected.servingAmount)
+      : Number.isFinite(quantityNum) && quantityNum > 0
+        ? scaleFood(selected, quantityNum)
+        : scaleFood(selected, 1)
     : null;
 
   return (
@@ -395,39 +407,48 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             ) : null}
             <p className="text-xs text-[var(--muted)] mt-1">{scaled.label}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-end gap-3">
             {selected.servingUnit === "ml" && selected.servingAmount ? (
               <>
-                <label className="text-xs text-[var(--muted)]">Amount (ml)</label>
-                <input
-                  type="number"
-                  min={10}
-                  step={10}
-                  value={mlAmount}
-                  onChange={(e) =>
-                    setMlAmount(
-                      Number(e.target.value) ||
-                        (selected.servingAmount ?? 250),
-                    )
-                  }
-                  className="w-24 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-sm"
-                />
-                <span className="text-xs text-[var(--muted)]">
+                <label className="space-y-1 block">
+                  <span className="text-xs text-[var(--muted)]">Amount (ml)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    value={mlAmount}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => {
+                      const next = e.target.value.replace(",", ".");
+                      if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                        setMlAmount(next);
+                      }
+                    }}
+                    className="w-28 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-base"
+                  />
+                </label>
+                <span className="text-xs text-[var(--muted)] pb-3">
                   Full package: {selected.servingAmount} ml
                 </span>
               </>
             ) : (
-              <>
-                <label className="text-xs text-[var(--muted)]">Quantity</label>
+              <label className="space-y-1 block">
+                <span className="text-xs text-[var(--muted)]">Quantity</span>
                 <input
-                  type="number"
-                  min={0.25}
-                  step={0.25}
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*[.,]?[0-9]*"
                   value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value) || 1)}
-                  className="w-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-sm"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(",", ".");
+                    if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                      setQuantity(next);
+                    }
+                  }}
+                  className="w-28 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-base"
                 />
-              </>
+              </label>
             )}
           </div>
           <p className="text-sm">
@@ -438,7 +459,12 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             <button
               type="button"
               onClick={confirmAdd}
-              className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2 text-sm font-medium"
+              disabled={
+                selected.servingUnit === "ml" && selected.servingAmount
+                  ? !Number.isFinite(mlNum) || mlNum <= 0
+                  : !Number.isFinite(quantityNum) || quantityNum <= 0
+              }
+              className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50"
             >
               Add to log
             </button>
