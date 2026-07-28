@@ -221,6 +221,56 @@ export const dailyMenuItems = sqliteTable("daily_menu_items", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+/**
+ * Persistent daily meal plan. The Daily Menu UI edits this list.
+ * Per-day checkmarks live in daily_menu_checks (reset each day by absence).
+ */
+export const standingMenuItems = sqliteTable("standing_menu_items", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  brand: text("brand"),
+  savedFoodId: text("savedFoodId").references(() => savedFoods.id, {
+    onDelete: "set null",
+  }),
+  quantity: real("quantity").notNull().default(1),
+  proteinG: real("proteinG").notNull().default(0),
+  carbsG: real("carbsG").notNull().default(0),
+  fatG: real("fatG").notNull().default(0),
+  calories: real("calories").notNull().default(0),
+  mealSlot: text("mealSlot", {
+    enum: ["breakfast", "lunch", "dinner", "snack"],
+  }).default("snack"),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+/** Day-specific checklist overlay on the standing menu. */
+export const dailyMenuChecks = sqliteTable("daily_menu_checks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  standingItemId: text("standingItemId")
+    .notNull()
+    .references(() => standingMenuItems.id, { onDelete: "cascade" }),
+  foodLogId: text("foodLogId").references(() => foodLogs.id, {
+    onDelete: "set null",
+  }),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const workoutSessions = sqliteTable("workout_sessions", {
   id: text("id")
     .primaryKey()
@@ -269,8 +319,27 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   savedFoods: many(savedFoods),
   menuTemplates: many(menuTemplates),
   dailyMenuItems: many(dailyMenuItems),
+  standingMenuItems: many(standingMenuItems),
+  dailyMenuChecks: many(dailyMenuChecks),
   workoutSessions: many(workoutSessions),
 }));
+
+export const standingMenuItemsRelations = relations(
+  standingMenuItems,
+  ({ many }) => ({
+    checks: many(dailyMenuChecks),
+  }),
+);
+
+export const dailyMenuChecksRelations = relations(
+  dailyMenuChecks,
+  ({ one }) => ({
+    standingItem: one(standingMenuItems, {
+      fields: [dailyMenuChecks.standingItemId],
+      references: [standingMenuItems.id],
+    }),
+  }),
+);
 
 export const menuTemplatesRelations = relations(menuTemplates, ({ many }) => ({
   items: many(menuTemplateItems),

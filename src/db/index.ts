@@ -46,7 +46,12 @@ export function getClient() {
 
 export function getDbSync() {
   const client = getClient();
-  if (!globalForDb.__recompDb) {
+  // Rebind schema on each access so HMR/new tables show up on db.query.*
+  // (a cached drizzle instance keeps the schema from first boot).
+  if (
+    !globalForDb.__recompDb ||
+    !("standingMenuItems" in (globalForDb.__recompDb.query ?? {}))
+  ) {
     globalForDb.__recompDb = drizzle(client, { schema });
   }
   return globalForDb.__recompDb;

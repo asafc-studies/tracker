@@ -39,8 +39,18 @@ type Template = {
 
 type DailyPayload = {
   items: MenuItem[];
-  totals: { proteinG: number; calories: number };
-  targets: { proteinG: number; calorieTarget: number } | null;
+  totals: {
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    calories: number;
+  };
+  targets: {
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    calorieTarget: number;
+  } | null;
 };
 
 type TemplatesPayload = {
@@ -50,6 +60,10 @@ type TemplatesPayload = {
 export function MenuDailyPanel({ date }: { date: string }) {
   const queryClient = useQueryClient();
   const [showAddFood, setShowAddFood] = useState(false);
+  const [improving, setImproving] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const field = nutritionFieldClass();
 
@@ -67,9 +81,18 @@ export function MenuDailyPanel({ date }: { date: string }) {
   });
 
   const items = dailyQuery.data?.items ?? [];
-  const totals = dailyQuery.data?.totals ?? { proteinG: 0, calories: 0 };
+  const totals = dailyQuery.data?.totals ?? {
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    calories: 0,
+  };
   const targets = dailyQuery.data?.targets ?? null;
   const templates = templatesQuery.data?.templates ?? [];
+  const fatOver =
+    targets != null && totals.fatG > targets.fatG + 0.5;
+  const calOver =
+    targets != null && totals.calories > targets.calorieTarget + 0.5;
 
   async function refreshAfterWrite() {
     await invalidateAfterMenu(queryClient, date);
@@ -78,7 +101,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
   async function checkItem(id: string) {
     await apiFetch("/api/menu/daily", {
       method: "POST",
-      body: JSON.stringify({ action: "check", id }),
+      body: JSON.stringify({ action: "check", id, date }),
     });
     await refreshAfterWrite();
   }
@@ -102,48 +125,134 @@ export function MenuDailyPanel({ date }: { date: string }) {
     mlAmount?: number,
   ) {
     const scaled = scaleFood(food, quantity, mlAmount);
-    await apiFetch("/api/menu/daily", {
-      method: "POST",
-      body: JSON.stringify({
-        action: "add",
-        date,
-        name: quantity === 1 ? food.name : `${food.name} (${scaled.label})`,
-        brand: food.brand,
-        savedFoodId: food.savedFoodId,
-        quantity,
-        proteinG: scaled.proteinG,
-        carbsG: scaled.carbsG,
-        fatG: scaled.fatG,
-        calories: scaled.calories,
-        mealSlot: "snack",
-        sortOrder: items.length,
-      }),
-    });
-    setShowAddFood(false);
-    await refreshAfterWrite();
+    setActionError(null);
+    try {
+      await apiFetch("/api/menu/daily", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "add",
+          date,
+          name: quantity === 1 ? food.name : `${food.name} (${scaled.label})`,
+          brand: food.brand,
+          savedFoodId: food.savedFoodId ?? null,
+          quantity,
+          proteinG: scaled.proteinG,
+          carbsG: scaled.carbsG,
+          fatG: scaled.fatG,
+          calories: scaled.calories,
+          mealSlot: "snack",
+          sortOrder: items.length,
+        }),
+      });
+      setShowAddFood(false);
+      await refreshAfterWrite();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not add food");
+    }
+  }
+
+  async function improveWithAi() {
+    setImproving(true);
+    setAiError(null);
+    setAiNote(null);
+    try {
+      const data = await apiFetch<{
+        applyDate: string;
+        rationale: string;
+        items: MenuItem[];
+      }>("/api/menu/improve", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setAiNote(`Updated your daily menu. ${data.rationale}`);
+      await Promise.all([
+        invalidateAfterMenu(queryClient, date),
+        queryClient.invalidateQueries({ queryKey: ["menu"] }),
+      ]);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "Improve failed");
+    } finally {
+      setImproving(false);
+    }
   }
 
   return (
     <div className="space-y-6">
+      <p className="text-xs text-[var(--muted)] leading-relaxed">
+        This is your persistent daily menu. Edits stay for every day; only the
+        checklist resets overnight. Check an item to log it for the selected
+        date.
+      </p>
+
       {targets ? (
-        <div className="rounded-lg border border-[var(--border)] p-4 space-y-2">
-          <p className="text-xs text-[var(--muted)]">Planned vs target</p>
-          <p className="text-sm">
-            Protein: {Math.round(totals.proteinG)}g —{" "}
-            {remainingLabel(totals.proteinG, targets.proteinG, "g")}
+        <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+            Planned vs target
           </p>
-          <p className="text-sm">
-            Calories: {Math.round(totals.calories)} —{" "}
-            {remainingLabel(totals.calories, targets.calorieTarget, " kcal")}
-          </p>
-          <div className="h-1.5 rounded-full bg-[var(--surface-2)] overflow-hidden">
-            <div
-              className="h-full bg-[var(--accent)]"
-              style={{
-                width: `${progressRatio(totals.proteinG, targets.proteinG) * 100}%`,
-              }}
-            />
-          </div>
+          {(
+            [
+              {
+                key: "protein",
+                label: "Protein",
+                current: totals.proteinG,
+                target: targets.proteinG,
+                unit: "g",
+                warn: false,
+              },
+              {
+                key: "carbs",
+                label: "Carbs",
+                current: totals.carbsG,
+                target: targets.carbsG,
+                unit: "g",
+                warn: false,
+              },
+              {
+                key: "fat",
+                label: "Fat",
+                current: totals.fatG,
+                target: targets.fatG,
+                unit: "g",
+                warn: fatOver,
+              },
+              {
+                key: "calories",
+                label: "Calories",
+                current: totals.calories,
+                target: targets.calorieTarget,
+                unit: " kcal",
+                warn: calOver,
+              },
+            ] as const
+          ).map((row) => {
+            const distance = remainingLabel(row.current, row.target, row.unit);
+            const ratio = progressRatio(row.current, row.target);
+            return (
+              <div key={row.key} className="space-y-1">
+                <div className="flex justify-between gap-2 text-sm">
+                  <span className={row.warn ? "text-[var(--warn)]" : undefined}>
+                    {row.label}
+                  </span>
+                  <span
+                    className={`text-xs tabular-nums ${
+                      row.warn ? "text-[var(--warn)]" : "text-[var(--muted)]"
+                    }`}
+                  >
+                    {Math.round(row.current)} / {row.target}
+                    {row.unit} · {distance}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-500 ${
+                      row.warn ? "bg-[var(--warn)]" : "bg-[var(--accent)]"
+                    }`}
+                    style={{ width: `${Math.min(100, ratio * 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : null}
 
@@ -154,6 +263,14 @@ export function MenuDailyPanel({ date }: { date: string }) {
           className="rounded-md border border-[var(--border)] px-3 py-2.5 text-xs hover:border-[var(--accent)] min-h-[44px]"
         >
           {showAddFood ? "Cancel" : "Add food"}
+        </button>
+        <button
+          type="button"
+          disabled={improving}
+          onClick={() => void improveWithAi()}
+          className="rounded-md bg-[var(--accent)] text-[var(--background)] px-3 py-2.5 text-xs font-medium min-h-[44px] disabled:opacity-50"
+        >
+          {improving ? "Improving…" : "AI improve menu"}
         </button>
         {templates.length > 0 ? (
           <select
@@ -174,13 +291,24 @@ export function MenuDailyPanel({ date }: { date: string }) {
         ) : null}
       </div>
 
+      {aiError ? (
+        <p className="text-xs text-[var(--warn)] leading-relaxed">{aiError}</p>
+      ) : null}
+      {actionError ? (
+        <p className="text-xs text-[var(--warn)] leading-relaxed">{actionError}</p>
+      ) : null}
+      {aiNote ? (
+        <p className="text-xs text-[var(--accent)] leading-relaxed">{aiNote}</p>
+      ) : null}
+
       {showAddFood ? (
         <FoodSearch onSelect={(f, q, ml) => void addFoodToMenu(f, q, ml)} />
       ) : null}
 
       {items.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
-          No items planned for this day.
+          No menu yet. Add foods here, or use AI improve after logging a few
+          days.
         </p>
       ) : (
         <ul className="divide-y divide-[var(--border)] border border-[var(--border)] rounded-lg overflow-hidden">
@@ -202,7 +330,9 @@ export function MenuDailyPanel({ date }: { date: string }) {
                   {item.name}
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  {item.mealSlot} · {item.proteinG}g P · {item.calories} kcal
+                  {item.mealSlot} · {Math.round(item.proteinG)}g P ·{" "}
+                  {Math.round(item.carbsG)}g C · {Math.round(item.fatG)}g F ·{" "}
+                  {Math.round(item.calories)} kcal
                 </p>
               </div>
               <button

@@ -155,6 +155,32 @@ const INCREMENTAL = [
   `ALTER TABLE workout_sessions ADD COLUMN caloriesBurned REAL`,
   `ALTER TABLE workout_sessions ADD COLUMN startedAt INTEGER`,
   `ALTER TABLE workout_sessions ADD COLUMN endedAt INTEGER`,
+  `CREATE TABLE IF NOT EXISTS standing_menu_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    brand TEXT,
+    savedFoodId TEXT REFERENCES saved_foods(id) ON DELETE SET NULL,
+    quantity REAL NOT NULL DEFAULT 1,
+    proteinG REAL NOT NULL DEFAULT 0,
+    carbsG REAL NOT NULL DEFAULT 0,
+    fatG REAL NOT NULL DEFAULT 0,
+    calories REAL NOT NULL DEFAULT 0,
+    mealSlot TEXT DEFAULT 'snack',
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS standing_menu_user ON standing_menu_items(userId)`,
+  `CREATE TABLE IF NOT EXISTS daily_menu_checks (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    standingItemId TEXT NOT NULL REFERENCES standing_menu_items(id) ON DELETE CASCADE,
+    foodLogId TEXT REFERENCES food_logs(id) ON DELETE SET NULL,
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS daily_menu_checks_user_date ON daily_menu_checks(userId, date)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS daily_menu_checks_unique ON daily_menu_checks(userId, date, standingItemId)`,
 ];
 
 export async function ensureMigrated(client: Client) {
