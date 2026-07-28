@@ -1,0 +1,218 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { AppShell } from "@/components/shell/AppShell";
+import {
+  ACTIVITY_LABELS,
+  ACTIVITY_OPTIONS,
+  DEFAULT_DEFICIT_KCAL,
+  DEFAULT_PROTEIN_PER_KG,
+  type ActivityLevel,
+  type Sex,
+} from "@/lib/tdee";
+
+type Targets = {
+  bmr: number;
+  tdee: number;
+  deficit: number;
+  calorieTarget: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  leanBodyMassKg?: number;
+  bodyFatPercent?: number;
+};
+
+export function CalculatorPage() {
+  const [weightKg, setWeightKg] = useState(80);
+  const [heightCm, setHeightCm] = useState(178);
+  const [age, setAge] = useState(30);
+  const [sex, setSex] = useState<Sex>("male");
+  const [bodyFatPercent, setBodyFatPercent] = useState(15);
+  const [activityLevel, setActivityLevel] =
+    useState<ActivityLevel>("moderate");
+  const [targets, setTargets] = useState<Targets | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.profile) {
+          if (data.profile.weightKg) setWeightKg(data.profile.weightKg);
+          if (data.profile.heightCm) setHeightCm(data.profile.heightCm);
+          if (data.profile.age) setAge(data.profile.age);
+          if (data.profile.sex) setSex(data.profile.sex);
+          if (data.profile.bodyFatPercent != null) {
+            setBodyFatPercent(data.profile.bodyFatPercent);
+          }
+          if (data.profile.activityLevel) {
+            const a = data.profile.activityLevel as ActivityLevel;
+            setActivityLevel(a === "very_active" ? "active" : a);
+          }
+        }
+        if (data.targets) setTargets(data.targets);
+      });
+  }, []);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weightKg,
+          heightCm,
+          age,
+          sex,
+          bodyFatPercent,
+          activityLevel,
+          deficitKcal: DEFAULT_DEFICIT_KCAL,
+          proteinPerKg: DEFAULT_PROTEIN_PER_KG,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
+      setTargets(data.targets);
+      setMessage(
+        data.targets
+          ? "Saved. Targets use Katch-McArdle BMR × activity (EEE is tracked separately)."
+          : "Saved profile — add body fat % for calorie targets.",
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const field =
+    "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none focus:border-[var(--accent)] min-h-[44px]";
+
+  return (
+    <AppShell title="Profile / Calculator">
+      <form onSubmit={(e) => void save(e)} className="space-y-6 max-w-xl">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <label className="block space-y-1.5">
+            <span className="text-xs text-[var(--muted)]">Weight (kg)</span>
+            <input
+              className={field}
+              type="number"
+              step="0.1"
+              value={weightKg}
+              onChange={(e) => setWeightKg(Number(e.target.value))}
+              required
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs text-[var(--muted)]">
+              Body fat % <span className="text-[var(--accent)]">*</span>
+            </span>
+            <input
+              className={field}
+              type="number"
+              step="0.1"
+              min={3}
+              max={60}
+              value={bodyFatPercent}
+              onChange={(e) => setBodyFatPercent(Number(e.target.value))}
+              required
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs text-[var(--muted)]">Height (cm)</span>
+            <input
+              className={field}
+              type="number"
+              step="0.1"
+              value={heightCm}
+              onChange={(e) => setHeightCm(Number(e.target.value))}
+              required
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs text-[var(--muted)]">Age</span>
+            <input
+              className={field}
+              type="number"
+              value={age}
+              onChange={(e) => setAge(Number(e.target.value))}
+              required
+            />
+          </label>
+          <label className="block space-y-1.5 col-span-2 sm:col-span-1">
+            <span className="text-xs text-[var(--muted)]">Sex</span>
+            <select
+              className={field}
+              value={sex}
+              onChange={(e) => setSex(e.target.value as Sex)}
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </label>
+          <label className="block space-y-1.5 col-span-2 sm:col-span-1">
+            <span className="text-xs text-[var(--muted)]">Activity</span>
+            <select
+              className={field}
+              value={activityLevel}
+              onChange={(e) =>
+                setActivityLevel(e.target.value as ActivityLevel)
+              }
+            >
+              {ACTIVITY_OPTIONS.map((k) => (
+                <option key={k} value={k}>
+                  {ACTIVITY_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <p className="text-xs text-[var(--muted)] leading-relaxed">
+          BMR uses Katch-McArdle from lean mass. Target = TDEE − {DEFAULT_DEFICIT_KCAL}{" "}
+          kcal. Protein {DEFAULT_PROTEIN_PER_KG} g/kg · fat 25% of target · carbs
+          fill the rest. Workout EEE is not subtracted from this target.
+        </p>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2.5 text-sm font-medium disabled:opacity-60 min-h-[44px] w-full sm:w-auto"
+        >
+          {saving ? "Saving…" : "Save targets"}
+        </button>
+        {message ? (
+          <p className="text-sm text-[var(--muted)]">{message}</p>
+        ) : null}
+      </form>
+
+      {targets ? (
+        <section className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+          {[
+            ["LBM", `${targets.leanBodyMassKg ?? "—"} kg`],
+            ["BMR", `${targets.bmr} kcal`],
+            ["TDEE", `${targets.tdee} kcal`],
+            ["Target", `${targets.calorieTarget} kcal`],
+            ["Protein", `${targets.proteinG} g`],
+            ["Carbs / Fat", `${targets.carbsG}g / ${targets.fatG}g`],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+            >
+              <p className="text-xs text-[var(--muted)] uppercase tracking-wider">
+                {label}
+              </p>
+              <p className="text-lg font-medium mt-1">{value}</p>
+            </div>
+          ))}
+        </section>
+      ) : null}
+    </AppShell>
+  );
+}
