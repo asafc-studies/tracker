@@ -26,5 +26,46 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log food",
+      "short_name": "Food",
+      "description": "Log a meal or snack",
+      "url": "/nutrition?panel=log",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Log exercise",
+      "short_name": "Exercise",
+      "description": "Start or update a workout",
+      "url": "/exercises?panel=log",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Log weight",
+      "short_name": "Weight",
+      "description": "Update body weight",
+      "url": "/exercises?panel=weight",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

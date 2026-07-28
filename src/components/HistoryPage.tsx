@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
 import { WeightChart } from "@/components/charts/WeightChart";
 import { NutritionChart } from "@/components/charts/NutritionChart";
 import { EeeBurnChart } from "@/components/charts/EeeBurnChart";
+import { apiFetch } from "@/lib/api-fetch";
 import { exerciseDisplayName, formatSetWeight } from "@/lib/exercises";
+import { invalidateAfterWeight } from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 
 type Tab = "weight" | "nutrition" | "burn";
 type Range = "7d" | "30d" | "90d" | "all";
@@ -34,58 +38,48 @@ type EeeDay = {
   setCount: number;
 };
 
+type HistoryPayload = {
+  rows?: Array<{ date: string; weightKg: number; note?: string | null }>;
+  days?: Array<{ date: string; proteinG: number; calories: number }>;
+  proteinTarget?: number | null;
+  series?: EeeDay[];
+  sessions?: SessionRow[];
+};
+
 export function HistoryPage() {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("weight");
   const [range, setRange] = useState<Range>("30d");
-  const [weightRows, setWeightRows] = useState<
-    Array<{ date: string; weightKg: number; note?: string | null }>
-  >([]);
-  const [nutritionDays, setNutritionDays] = useState<
-    Array<{ date: string; proteinG: number; calories: number }>
-  >([]);
-  const [proteinTarget, setProteinTarget] = useState<number | null>(null);
-  const [eeeSeries, setEeeSeries] = useState<EeeDay[]>([]);
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [quickWeight, setQuickWeight] = useState("");
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const apiTab = tab === "burn" ? "lifts" : tab;
-      const qs = new URLSearchParams({ tab: apiTab, range });
-      const data = await fetch(`/api/history?${qs}`).then((r) => r.json());
-      if (tab === "weight") setWeightRows(data.rows ?? []);
-      if (tab === "nutrition") {
-        setNutritionDays(data.days ?? []);
-        setProteinTarget(data.proteinTarget ?? null);
-      }
-      if (tab === "burn") {
-        setEeeSeries(data.series ?? []);
-        setSessions(data.sessions ?? []);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, range]);
+  const apiTab = tab === "burn" ? "lifts" : tab;
+  const historyQuery = useQuery({
+    queryKey: queryKeys.history(apiTab, range),
+    queryFn: () =>
+      apiFetch<HistoryPayload>(
+        `/api/history?${new URLSearchParams({ tab: apiTab, range })}`,
+      ),
+  });
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const weightRows = historyQuery.data?.rows ?? [];
+  const nutritionDays = historyQuery.data?.days ?? [];
+  const proteinTarget = historyQuery.data?.proteinTarget ?? null;
+  const eeeSeries = historyQuery.data?.series ?? [];
+  const sessions = historyQuery.data?.sessions ?? [];
+  const loading = historyQuery.isLoading;
 
   async function logWeight(e: React.FormEvent) {
     e.preventDefault();
     const weightKg = Number(quickWeight);
     if (!weightKg) return;
-    await fetch("/api/weight", {
+    await apiFetch("/api/weight", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ weightKg }),
     });
     setQuickWeight("");
     setTab("weight");
-    await reload();
+    await invalidateAfterWeight(queryClient);
   }
 
   const tabBtn = (id: Tab, label: string) => (

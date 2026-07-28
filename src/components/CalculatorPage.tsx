@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
+import { apiFetch } from "@/lib/api-fetch";
+import { invalidateAfterProfile } from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 import {
   ACTIVITY_LABELS,
   ACTIVITY_OPTIONS,
@@ -23,7 +27,20 @@ type Targets = {
   bodyFatPercent?: number;
 };
 
+type ProfilePayload = {
+  profile?: {
+    weightKg?: number | null;
+    heightCm?: number | null;
+    age?: number | null;
+    sex?: Sex | null;
+    bodyFatPercent?: number | null;
+    activityLevel?: string | null;
+  } | null;
+  targets?: Targets | null;
+};
+
 export function CalculatorPage() {
+  const queryClient = useQueryClient();
   const [weightKg, setWeightKg] = useState(80);
   const [heightCm, setHeightCm] = useState(178);
   const [age, setAge] = useState(30);
@@ -32,38 +49,42 @@ export function CalculatorPage() {
   const [activityLevel, setActivityLevel] =
     useState<ActivityLevel>("moderate");
   const [targets, setTargets] = useState<Targets | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const profileQuery = useQuery({
+    queryKey: queryKeys.profile,
+    queryFn: () => apiFetch<ProfilePayload>("/api/profile"),
+  });
+
   useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.profile) {
-          if (data.profile.weightKg) setWeightKg(data.profile.weightKg);
-          if (data.profile.heightCm) setHeightCm(data.profile.heightCm);
-          if (data.profile.age) setAge(data.profile.age);
-          if (data.profile.sex) setSex(data.profile.sex);
-          if (data.profile.bodyFatPercent != null) {
-            setBodyFatPercent(data.profile.bodyFatPercent);
-          }
-          if (data.profile.activityLevel) {
-            const a = data.profile.activityLevel as ActivityLevel;
-            setActivityLevel(a === "very_active" ? "active" : a);
-          }
-        }
-        if (data.targets) setTargets(data.targets);
-      });
-  }, []);
+    const data = profileQuery.data;
+    if (!data || hydrated) return;
+    if (data.profile) {
+      if (data.profile.weightKg) setWeightKg(data.profile.weightKg);
+      if (data.profile.heightCm) setHeightCm(data.profile.heightCm);
+      if (data.profile.age) setAge(data.profile.age);
+      if (data.profile.sex) setSex(data.profile.sex);
+      if (data.profile.bodyFatPercent != null) {
+        setBodyFatPercent(data.profile.bodyFatPercent);
+      }
+      if (data.profile.activityLevel) {
+        const a = data.profile.activityLevel as ActivityLevel;
+        setActivityLevel(a === "very_active" ? "active" : a);
+      }
+    }
+    if (data.targets) setTargets(data.targets);
+    setHydrated(true);
+  }, [profileQuery.data, hydrated]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch("/api/profile", {
+      const data = await apiFetch<ProfilePayload>("/api/profile", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           weightKg,
           heightCm,
@@ -75,14 +96,13 @@ export function CalculatorPage() {
           proteinPerKg: DEFAULT_PROTEIN_PER_KG,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
-      setTargets(data.targets);
+      setTargets(data.targets ?? null);
       setMessage(
         data.targets
           ? "Saved. Targets use Katch-McArdle BMR × activity (EEE is tracked separately)."
           : "Saved profile — add body fat % for calorie targets.",
       );
+      await invalidateAfterProfile(queryClient);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Save failed");
     } finally {

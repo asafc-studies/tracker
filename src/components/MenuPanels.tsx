@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
+import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
 import { progressRatio, remainingLabel } from "@/lib/macros";
+import { invalidateAfterMenu } from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 
 type MenuItem = {
   id: string;
@@ -33,56 +37,63 @@ type Template = {
   }>;
 };
 
+type DailyPayload = {
+  items: MenuItem[];
+  totals: { proteinG: number; calories: number };
+  targets: { proteinG: number; calorieTarget: number } | null;
+};
+
+type TemplatesPayload = {
+  templates: Template[];
+};
+
 export function MenuDailyPanel({ date }: { date: string }) {
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [totals, setTotals] = useState({ proteinG: 0, calories: 0 });
-  const [targets, setTargets] = useState<{
-    proteinG: number;
-    calorieTarget: number;
-  } | null>(null);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const queryClient = useQueryClient();
   const [showAddFood, setShowAddFood] = useState(false);
 
   const field = nutritionFieldClass();
 
-  const reloadDaily = useCallback(async () => {
-    const [daily, tpl] = await Promise.all([
-      fetch(`/api/menu/daily?date=${encodeURIComponent(date)}`).then((r) =>
-        r.json(),
+  const dailyQuery = useQuery({
+    queryKey: queryKeys.menuDaily(date),
+    queryFn: () =>
+      apiFetch<DailyPayload>(
+        `/api/menu/daily?date=${encodeURIComponent(date)}`,
       ),
-      fetch("/api/menu/templates").then((r) => r.json()),
-    ]);
-    setItems(daily.items ?? []);
-    setTotals(daily.totals ?? { proteinG: 0, calories: 0 });
-    setTargets(daily.targets ?? null);
-    setTemplates(tpl.templates ?? []);
-  }, [date]);
+  });
 
-  useEffect(() => {
-    void reloadDaily();
-  }, [reloadDaily]);
+  const templatesQuery = useQuery({
+    queryKey: queryKeys.menuTemplates,
+    queryFn: () => apiFetch<TemplatesPayload>("/api/menu/templates"),
+  });
+
+  const items = dailyQuery.data?.items ?? [];
+  const totals = dailyQuery.data?.totals ?? { proteinG: 0, calories: 0 };
+  const targets = dailyQuery.data?.targets ?? null;
+  const templates = templatesQuery.data?.templates ?? [];
+
+  async function refreshAfterWrite() {
+    await invalidateAfterMenu(queryClient, date);
+  }
 
   async function checkItem(id: string) {
-    await fetch("/api/menu/daily", {
+    await apiFetch("/api/menu/daily", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "check", id }),
     });
-    await reloadDaily();
+    await refreshAfterWrite();
   }
 
   async function removeItem(id: string) {
-    await fetch(`/api/menu/daily?id=${id}`, { method: "DELETE" });
-    await reloadDaily();
+    await apiFetch(`/api/menu/daily?id=${id}`, { method: "DELETE" });
+    await refreshAfterWrite();
   }
 
   async function applyTemplate(templateId: string) {
-    await fetch("/api/menu/daily", {
+    await apiFetch("/api/menu/daily", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "apply_template", templateId, date }),
     });
-    await reloadDaily();
+    await refreshAfterWrite();
   }
 
   async function addFoodToMenu(
@@ -91,9 +102,8 @@ export function MenuDailyPanel({ date }: { date: string }) {
     mlAmount?: number,
   ) {
     const scaled = scaleFood(food, quantity, mlAmount);
-    await fetch("/api/menu/daily", {
+    await apiFetch("/api/menu/daily", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "add",
         date,
@@ -110,7 +120,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
       }),
     });
     setShowAddFood(false);
-    await reloadDaily();
+    await refreshAfterWrite();
   }
 
   return (
@@ -217,37 +227,36 @@ export function MenuTemplatesPanel({
   date: string;
   onApplied?: () => void;
 }) {
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const queryClient = useQueryClient();
   const [newTemplateName, setNewTemplateName] = useState("");
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [draftItems, setDraftItems] = useState<Template["items"]>([]);
 
   const field = nutritionFieldClass();
 
-  const reloadTemplates = useCallback(async () => {
-    const res = await fetch("/api/menu/templates");
-    const data = await res.json();
-    setTemplates(data.templates ?? []);
-  }, []);
+  const templatesQuery = useQuery({
+    queryKey: queryKeys.menuTemplates,
+    queryFn: () => apiFetch<TemplatesPayload>("/api/menu/templates"),
+  });
+  const templates = templatesQuery.data?.templates ?? [];
 
-  useEffect(() => {
-    void reloadTemplates();
-  }, [reloadTemplates]);
+  async function refreshTemplates() {
+    await invalidateAfterMenu(queryClient, date);
+  }
 
   async function applyTemplate(templateId: string) {
-    await fetch("/api/menu/daily", {
+    await apiFetch("/api/menu/daily", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "apply_template", templateId, date }),
     });
+    await refreshTemplates();
     onApplied?.();
   }
 
   async function saveTemplateItems() {
     if (!editingTemplate) return;
-    await fetch("/api/menu/templates", {
+    await apiFetch("/api/menu/templates", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: editingTemplate.id,
         items: draftItems.map((item) => ({
@@ -262,7 +271,7 @@ export function MenuTemplatesPanel({
     });
     setEditingTemplate(null);
     setDraftItems([]);
-    await reloadTemplates();
+    await refreshTemplates();
   }
 
   function addFoodToTemplate(
@@ -288,18 +297,17 @@ export function MenuTemplatesPanel({
   async function createTemplate(e: React.FormEvent) {
     e.preventDefault();
     if (!newTemplateName.trim()) return;
-    await fetch("/api/menu/templates", {
+    await apiFetch("/api/menu/templates", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newTemplateName.trim(), items: [] }),
     });
     setNewTemplateName("");
-    await reloadTemplates();
+    await refreshTemplates();
   }
 
   async function deleteTemplate(id: string) {
-    await fetch(`/api/menu/templates?id=${id}`, { method: "DELETE" });
-    await reloadTemplates();
+    await apiFetch(`/api/menu/templates?id=${id}`, { method: "DELETE" });
+    await refreshTemplates();
   }
 
   return (

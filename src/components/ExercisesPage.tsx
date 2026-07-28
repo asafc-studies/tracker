@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
 import { BodyHeatmap } from "@/components/BodyHeatmap";
 import { MuscleMap } from "@/components/MuscleMap";
@@ -18,11 +19,17 @@ import {
   WorkoutLogPanel,
   type DaySession,
 } from "@/components/WorkoutLogPanel";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   type BodyRegion,
   type MuscleGroup,
   type DayLiftStats,
 } from "@/lib/exercises";
+import {
+  invalidateAfterLifts,
+  invalidateAfterWeight,
+} from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
 
 type Grouped = {
@@ -60,6 +67,25 @@ type WeightRow = {
   note?: string | null;
 };
 
+type LiftsPayload = {
+  sessions?: DaySession[];
+  inProgressSession?: DaySession | null;
+  lastByLift?: Record<string, { weightKg: number; reps: number; date: string }>;
+  lastSessionByLift?: Record<string, LastSession>;
+  muscleSummary?: Array<{ muscle: MuscleGroup; sets: number; label: string }>;
+  regionCounts?: Partial<Record<BodyRegion, number>>;
+  stats?: DayLiftStats | null;
+  funny?: string[];
+  recentGrouped?: RecentDay[];
+  eee?: { caloriesBurned?: number | null };
+  bodyWeightKg?: number | null;
+  profileWeightKg?: number | null;
+};
+
+type WeightHistoryPayload = {
+  rows?: WeightRow[];
+};
+
 function clampDate(d: string): string {
   const today = todayISODate();
   return d > today ? today : d;
@@ -89,36 +115,17 @@ function todayFriendly(date: string): string {
 }
 
 export function ExercisesPage() {
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const initialDate = clampDate(searchParams.get("date") || todayISODate());
-  const initialPanel = normalizePanel(searchParams.get("panel"));
 
-  const [panel, setPanel] = useState<ExercisePanel>(initialPanel);
+  const [panel, setPanel] = useState<ExercisePanel>(() =>
+    normalizePanel(searchParams.get("panel")),
+  );
   const [date, setDate] = useState(initialDate);
-  const [sessions, setSessions] = useState<DaySession[]>([]);
-  const [inProgressSession, setInProgressSession] =
-    useState<DaySession | null>(null);
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null);
-  const [lastByLift, setLastByLift] = useState<
-    Record<string, { weightKg: number; reps: number; date: string }>
-  >({});
-  const [lastSessionByLift, setLastSessionByLift] = useState<
-    Record<string, LastSession>
-  >({});
-  const [muscleSummary, setMuscleSummary] = useState<
-    Array<{ muscle: MuscleGroup; sets: number; label: string }>
-  >([]);
-  const [regionCounts, setRegionCounts] = useState<
-    Partial<Record<BodyRegion, number>>
-  >({});
-  const [stats, setStats] = useState<DayLiftStats | null>(null);
-  const [funny, setFunny] = useState<string[]>([]);
-  const [recentGrouped, setRecentGrouped] = useState<RecentDay[]>([]);
-  const [caloriesBurned, setCaloriesBurned] = useState<number | null>(null);
-  const [bodyWeightKg, setBodyWeightKg] = useState<number | null>(null);
-  const [profileWeightKg, setProfileWeightKg] = useState<number | null>(null);
   const [weightInput, setWeightInput] = useState("");
-  const [weightHistory, setWeightHistory] = useState<WeightRow[]>([]);
+  const [weightDirty, setWeightDirty] = useState(false);
   const [savingWeight, setSavingWeight] = useState(false);
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [historyEditDraft, setHistoryEditDraft] = useState<{
@@ -136,44 +143,54 @@ export function ExercisesPage() {
 
   const field = fieldClass();
   const today = todayISODate();
+
+  useEffect(() => {
+    setPanel(normalizePanel(searchParams.get("panel")));
+  }, [searchParams]);
+
+  const liftsQuery = useQuery({
+    queryKey: queryKeys.lifts(date),
+    queryFn: () =>
+      apiFetch<LiftsPayload>(
+        `/api/lifts?date=${encodeURIComponent(date)}`,
+      ),
+  });
+
+  const weightHistoryQuery = useQuery({
+    queryKey: queryKeys.history("weight", "90d"),
+    queryFn: () =>
+      apiFetch<WeightHistoryPayload>("/api/history?tab=weight&range=90d"),
+    enabled: panel === "weight",
+  });
+
+  const lifts = liftsQuery.data;
+  const sessions = lifts?.sessions ?? [];
+  const inProgressSession = lifts?.inProgressSession ?? null;
+  const lastByLift = lifts?.lastByLift ?? {};
+  const lastSessionByLift = lifts?.lastSessionByLift ?? {};
+  const muscleSummary = lifts?.muscleSummary ?? [];
+  const regionCounts = lifts?.regionCounts ?? {};
+  const stats = lifts?.stats ?? null;
+  const funny = lifts?.funny ?? [];
+  const recentGrouped = lifts?.recentGrouped ?? [];
+  const caloriesBurned = lifts?.eee?.caloriesBurned ?? null;
+  const bodyWeightKg = lifts?.bodyWeightKg ?? null;
+  const profileWeightKg = lifts?.profileWeightKg ?? null;
+  const weightHistory = weightHistoryQuery.data?.rows ?? [];
   const totalSets = stats?.totalSets ?? 0;
 
-  const loadWeightHistory = useCallback(async () => {
-    const data = await fetch("/api/history?tab=weight&range=90d").then((r) =>
-      r.json(),
-    );
-    setWeightHistory(data.rows ?? []);
-  }, []);
-
-  const reload = useCallback(async () => {
-    const data = await fetch(
-      `/api/lifts?date=${encodeURIComponent(date)}`,
-      { cache: "no-store" },
-    ).then((r) => r.json());
-    setLastByLift(data.lastByLift ?? {});
-    setLastSessionByLift(data.lastSessionByLift ?? {});
-    setSessions(data.sessions ?? []);
-    setInProgressSession(data.inProgressSession ?? null);
-    setMuscleSummary(data.muscleSummary ?? []);
-    setRegionCounts(data.regionCounts ?? {});
-    setStats(data.stats ?? null);
-    setFunny(data.funny ?? []);
-    setRecentGrouped(data.recentGrouped ?? []);
-    setCaloriesBurned(data.eee?.caloriesBurned ?? null);
-    setBodyWeightKg(data.bodyWeightKg ?? null);
-    setProfileWeightKg(data.profileWeightKg ?? null);
-    setWeightInput(
-      data.bodyWeightKg != null ? String(data.bodyWeightKg) : "",
-    );
+  useEffect(() => {
+    setWeightDirty(false);
   }, [date]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (weightDirty) return;
+    setWeightInput(bodyWeightKg != null ? String(bodyWeightKg) : "");
+  }, [bodyWeightKg, weightDirty, date]);
 
-  useEffect(() => {
-    if (panel === "weight") void loadWeightHistory();
-  }, [panel, loadWeightHistory]);
+  async function refreshLifts() {
+    await invalidateAfterLifts(queryClient);
+  }
 
   function setDateSafe(next: string) {
     setDate(clampDate(next));
@@ -189,10 +206,8 @@ export function ExercisesPage() {
   async function saveSessionFromHistory(sessionId: string) {
     setSavingSessionHistory(true);
     try {
-      const res = await fetch("/api/lifts", {
+      await apiFetch("/api/lifts", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
         body: JSON.stringify({
           sessionId,
           updateSession: true,
@@ -203,13 +218,10 @@ export function ExercisesPage() {
               : Number(sessionHistoryDraft.durationMinutes),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        window.alert(data.error || "Save failed");
-        return;
-      }
       setEditingSessionHistoryId(null);
-      await reload();
+      await refreshLifts();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSavingSessionHistory(false);
     }
@@ -221,16 +233,12 @@ export function ExercisesPage() {
     if (!w || w <= 0) return;
     setSavingWeight(true);
     try {
-      const res = await fetch("/api/weight", {
+      await apiFetch("/api/weight", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ weightKg: w, date, note: "After exercise" }),
-      }).then((r) => r.json());
-      if (res.profileWeightKg != null) {
-        setProfileWeightKg(res.profileWeightKg);
-      }
-      await reload();
-      await loadWeightHistory();
+      });
+      setWeightDirty(false);
+      await invalidateAfterWeight(queryClient);
     } finally {
       setSavingWeight(false);
     }
@@ -242,22 +250,17 @@ export function ExercisesPage() {
     if (!w || w <= 0) return;
     setSavingWeight(true);
     try {
-      const res = await fetch("/api/weight", {
+      await apiFetch("/api/weight", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
           weightKg: w,
           date: historyEditDraft.date,
         }),
-      }).then((r) => r.json());
-      if (res.profileWeightKg != null) {
-        setProfileWeightKg(res.profileWeightKg);
-      }
+      });
       setEditingHistoryId(null);
       setHistoryEditDraft(null);
-      await reload();
-      await loadWeightHistory();
+      await invalidateAfterWeight(queryClient);
     } finally {
       setSavingWeight(false);
     }
@@ -266,20 +269,14 @@ export function ExercisesPage() {
   async function deleteHistoryWeight(id: string) {
     setSavingWeight(true);
     try {
-      const res = await fetch(`/api/weight?id=${encodeURIComponent(id)}`, {
+      await apiFetch(`/api/weight?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
-      }).then((r) => r.json());
-      if (res.profileWeightKg != null) {
-        setProfileWeightKg(res.profileWeightKg);
-      } else {
-        setProfileWeightKg(null);
-      }
+      });
       if (editingHistoryId === id) {
         setEditingHistoryId(null);
         setHistoryEditDraft(null);
       }
-      await reload();
-      await loadWeightHistory();
+      await invalidateAfterWeight(queryClient);
     } finally {
       setSavingWeight(false);
     }
@@ -420,7 +417,10 @@ export function ExercisesPage() {
                   : "e.g. 78.4"
               }
               value={weightInput}
-              onChange={(e) => setWeightInput(e.target.value)}
+              onChange={(e) => {
+                setWeightDirty(true);
+                setWeightInput(e.target.value);
+              }}
             />
           </label>
           <button
@@ -712,14 +712,23 @@ export function ExercisesPage() {
           focusSessionId={focusSessionId}
           lastByLift={lastByLift}
           lastSessionByLift={lastSessionByLift}
-          onChanged={reload}
+          onChanged={refreshLifts}
           onStopped={(stopped) => {
-            setInProgressSession(null);
             setFocusSessionId(stopped.id);
-            setSessions((prev) => {
-              const others = prev.filter((s) => s.id !== stopped.id);
-              return [...others, { ...stopped, inProgress: false }];
-            });
+            queryClient.setQueryData(
+              queryKeys.lifts(date),
+              (old: LiftsPayload | undefined) => {
+                if (!old) return old;
+                const others = (old.sessions ?? []).filter(
+                  (s) => s.id !== stopped.id,
+                );
+                return {
+                  ...old,
+                  inProgressSession: null,
+                  sessions: [...others, { ...stopped, inProgress: false }],
+                };
+              },
+            );
           }}
           onClearFocus={() => setFocusSessionId(null)}
         />

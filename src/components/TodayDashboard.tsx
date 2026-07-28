@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
+import { apiFetch } from "@/lib/api-fetch";
+import { queryKeys } from "@/lib/query-keys";
+import { todayISODate } from "@/lib/tdee";
 
 type ProfilePayload = {
   profile: {
@@ -15,32 +18,29 @@ type ProfilePayload = {
   } | null;
 };
 
-export function TodayDashboard() {
-  const [profile, setProfile] = useState<ProfilePayload | null>(null);
-  const [macros, setMacros] = useState<{
-    totals: { proteinG: number; calories: number };
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+type MacrosPayload = {
+  totals: { proteinG: number; calories: number };
+};
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [p, m] = await Promise.all([
-          fetch("/api/profile").then((r) => r.json()),
-          fetch("/api/macros").then((r) => r.json()),
-        ]);
-        if (cancelled) return;
-        setProfile(p);
-        setMacros(m);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+export function TodayDashboard() {
+  const today = todayISODate();
+
+  const profileQuery = useQuery({
+    queryKey: queryKeys.profile,
+    queryFn: () => apiFetch<ProfilePayload>("/api/profile"),
+  });
+
+  const macrosQuery = useQuery({
+    queryKey: queryKeys.macros(today),
+    queryFn: () =>
+      apiFetch<MacrosPayload>(
+        `/api/macros?date=${encodeURIComponent(today)}`,
+      ),
+  });
+
+  const loading = profileQuery.isLoading || macrosQuery.isLoading;
+  const profile = profileQuery.data ?? null;
+  const macros = macrosQuery.data ?? null;
 
   const protein = macros?.totals.proteinG ?? 0;
   const calories = macros?.totals.calories ?? 0;

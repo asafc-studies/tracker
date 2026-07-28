@@ -11,15 +11,12 @@ const withPWA = withPWAInit({
   workboxOptions: {
     runtimeCaching: [
       {
+        // API freshness is owned by TanStack Query (~1 min). Never serve
+        // hour-old Workbox snapshots for mutable user data.
         urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith("/api/"),
-        handler: "NetworkFirst",
+        handler: "NetworkOnly",
         options: {
-          cacheName: "api-network-first",
-          networkTimeoutSeconds: 10,
-          expiration: {
-            maxEntries: 64,
-            maxAgeSeconds: 60 * 60,
-          },
+          cacheName: "api-network-only",
         },
       },
     ],

@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
+import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
 import { progressRatio, remainingLabel } from "@/lib/macros";
+import { invalidateAfterMacros } from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 
 type Food = {
   id: string;
@@ -18,21 +22,26 @@ type Food = {
   calories: number;
 };
 
+type MacrosPayload = {
+  foods: Food[];
+  totals: {
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    calories: number;
+  };
+};
+
+type ProfilePayload = {
+  targets: { proteinG: number; calorieTarget: number } | null;
+};
+
 type Props = {
   date: string;
 };
 
 export function MacrosLogPanel({ date }: Props) {
-  const [foods, setFoods] = useState<Food[]>([]);
-  const [totals, setTotals] = useState({
-    proteinG: 0,
-    carbsG: 0,
-    fatG: 0,
-    calories: 0,
-  });
-  const [proteinTarget, setProteinTarget] = useState(0);
-  const [calorieTarget, setCalorieTarget] = useState(0);
-  const [hasTargets, setHasTargets] = useState(false);
+  const queryClient = useQueryClient();
   const [showManual, setShowManual] = useState(false);
   const [name, setName] = useState("");
   const [proteinG, setProteinG] = useState(0);
@@ -45,27 +54,33 @@ export function MacrosLogPanel({ date }: Props) {
 
   const field = nutritionFieldClass();
 
-  const reload = useCallback(async () => {
-    const [m, p] = await Promise.all([
-      fetch(`/api/macros?date=${encodeURIComponent(date)}`).then((r) =>
-        r.json(),
+  const macrosQuery = useQuery({
+    queryKey: queryKeys.macros(date),
+    queryFn: () =>
+      apiFetch<MacrosPayload>(
+        `/api/macros?date=${encodeURIComponent(date)}`,
       ),
-      fetch("/api/profile").then((r) => r.json()),
-    ]);
-    setFoods(m.foods ?? []);
-    setTotals(m.totals ?? { proteinG: 0, carbsG: 0, fatG: 0, calories: 0 });
-    if (p.targets) {
-      setProteinTarget(p.targets.proteinG);
-      setCalorieTarget(p.targets.calorieTarget);
-      setHasTargets(true);
-    } else {
-      setHasTargets(false);
-    }
-  }, [date]);
+  });
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const profileQuery = useQuery({
+    queryKey: queryKeys.profile,
+    queryFn: () => apiFetch<ProfilePayload>("/api/profile"),
+  });
+
+  const foods = macrosQuery.data?.foods ?? [];
+  const totals = macrosQuery.data?.totals ?? {
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    calories: 0,
+  };
+  const proteinTarget = profileQuery.data?.targets?.proteinG ?? 0;
+  const calorieTarget = profileQuery.data?.targets?.calorieTarget ?? 0;
+  const hasTargets = Boolean(profileQuery.data?.targets);
+
+  async function refreshAfterWrite() {
+    await invalidateAfterMacros(queryClient, date);
+  }
 
   async function addFood(payload: {
     name: string;
@@ -88,21 +103,20 @@ export function MacrosLogPanel({ date }: Props) {
     baseCalories?: number;
     foodId?: string;
   }) {
-    await fetch("/api/macros", {
+    await apiFetch("/api/macros", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, date }),
     });
-    await reload();
+    await refreshAfterWrite();
   }
 
   async function removeFood(id: string) {
-    await fetch(`/api/macros?id=${id}`, { method: "DELETE" });
+    await apiFetch(`/api/macros?id=${id}`, { method: "DELETE" });
     if (editingFoodId === id) {
       setEditingFoodId(null);
       setEditQuantity("");
     }
-    await reload();
+    await refreshAfterWrite();
   }
 
   function startEditFood(food: Food) {
@@ -115,14 +129,13 @@ export function MacrosLogPanel({ date }: Props) {
     if (!quantity || quantity <= 0) return;
     setSavingFoodId(id);
     try {
-      await fetch("/api/macros", {
+      await apiFetch("/api/macros", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, quantity }),
       });
       setEditingFoodId(null);
       setEditQuantity("");
-      await reload();
+      await refreshAfterWrite();
     } finally {
       setSavingFoodId(null);
     }

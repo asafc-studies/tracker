@@ -39,8 +39,10 @@ export default async function SettingsPage() {
         </form>
 
         <p className="text-xs text-[var(--muted)] leading-relaxed">
-          Install this app from your browser menu for a home-screen PWA
-          experience. Logs sync across devices via your Google account.
+          Install from your browser menu for a home-screen app. On Android Chrome,
+          long-press the app icon for Log food / Log exercise / Log weight
+          shortcuts. Logs sync across devices via your Google account (other
+          devices refresh within about a minute).
         </p>
       </div>
     </AppShell>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/AppShell";
 import { MacrosLogPanel } from "@/components/MacrosLogPanel";
@@ -25,15 +25,22 @@ function normalizePanel(p: string | null): NutritionPanel {
 
 function NutritionContent() {
   const searchParams = useSearchParams();
-  const initialPanel = normalizePanel(searchParams.get("panel"));
   const initialDate = clampDate(
     searchParams.get("date") || todayISODate(),
   );
 
-  const [panel, setPanel] = useState<NutritionPanel>(initialPanel);
+  const [panel, setPanel] = useState<NutritionPanel>(() =>
+    normalizePanel(searchParams.get("panel")),
+  );
   const [date, setDate] = useState(initialDate);
   const today = todayISODate();
   const field = nutritionFieldClass();
+
+  useEffect(() => {
+    setPanel(normalizePanel(searchParams.get("panel")));
+    const nextDate = searchParams.get("date");
+    if (nextDate) setDate(clampDate(nextDate));
+  }, [searchParams]);
 
   return (
     <>

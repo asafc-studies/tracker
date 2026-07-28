@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api-fetch";
+import { invalidateAfterProfile } from "@/lib/query-invalidate";
+import { queryKeys } from "@/lib/query-keys";
 
 type Targets = {
   calorieTarget: number;
@@ -11,40 +15,53 @@ type Targets = {
   hasOverrides?: boolean;
 };
 
+type ProfilePayload = {
+  profile?: {
+    calorieTargetOverride?: number | null;
+    proteinTargetOverride?: number | null;
+  } | null;
+  targets?: Targets | null;
+};
+
 export function SettingsNutrition() {
+  const queryClient = useQueryClient();
   const [calorieTarget, setCalorieTarget] = useState<string>("");
   const [proteinTarget, setProteinTarget] = useState<string>("");
   const [useCalculator, setUseCalculator] = useState(true);
   const [computed, setComputed] = useState<Targets | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const profileQuery = useQuery({
+    queryKey: queryKeys.profile,
+    queryFn: () => apiFetch<ProfilePayload>("/api/profile"),
+  });
+
   useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.targets) {
-          setComputed(d.targets);
-          const hasOverrides =
-            d.profile?.calorieTargetOverride != null ||
-            d.profile?.proteinTargetOverride != null;
-          setUseCalculator(!hasOverrides);
-          if (hasOverrides) {
-            setCalorieTarget(String(d.targets.calorieTarget));
-            setProteinTarget(String(d.targets.proteinG));
-          }
-        }
-      });
-  }, []);
+    const d = profileQuery.data;
+    if (!d || hydrated) return;
+    if (d.targets) {
+      setComputed(d.targets);
+      const hasOverrides =
+        d.profile?.calorieTargetOverride != null ||
+        d.profile?.proteinTargetOverride != null;
+      setUseCalculator(!hasOverrides);
+      if (hasOverrides) {
+        setCalorieTarget(String(d.targets.calorieTarget));
+        setProteinTarget(String(d.targets.proteinG));
+      }
+    }
+    setHydrated(true);
+  }, [profileQuery.data, hydrated]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch("/api/profile", {
+      const data = await apiFetch<ProfilePayload>("/api/profile", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nutritionOnly: true,
           calorieTargetOverride: useCalculator
@@ -54,10 +71,9 @@ export function SettingsNutrition() {
           countryCode: "il",
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
-      setComputed(data.targets);
+      setComputed(data.targets ?? null);
       setMessage("Nutrition targets saved.");
+      await invalidateAfterProfile(queryClient);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Save failed");
     } finally {
