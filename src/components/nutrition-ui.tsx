@@ -21,7 +21,7 @@ export function NutritionPanelNav({
 }) {
   return (
     <nav
-      className="flex gap-0.5 overflow-x-auto border-b border-[var(--border)] mb-6 -mx-1 px-1"
+      className="flex gap-0.5 overflow-x-auto overscroll-x-contain border-b border-[var(--border)] mb-6 no-scrollbar"
       aria-label="Nutrition sections"
     >
       {NUTRITION_PANELS.map((tab) => {

@@ -1,7 +1,7 @@
 {
   "name": "Recomp Tracker",
   "short_name": "Recomp",
-  "description": "Protein-first recomp logging — macros, lifts, and history.",
+  "description": "Protein-first recomp logging — nutrition, exercises, and history.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0c0c0c",
@@ -21,7 +21,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

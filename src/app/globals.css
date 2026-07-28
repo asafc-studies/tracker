@@ -20,6 +20,7 @@
 
 html {
   color-scheme: dark;
+  overflow-x: hidden;
 }
 
 body {
@@ -30,6 +31,16 @@ body {
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(125, 211, 192, 0.08), transparent),
     linear-gradient(180deg, #0c0c0c 0%, #101010 100%);
   min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Keep swipe-scroll on tab bars without showing a scrollbar gutter */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 input,

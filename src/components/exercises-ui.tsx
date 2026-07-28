@@ -30,7 +30,7 @@ export function ExercisePanelNav({
 }) {
   return (
     <nav
-      className="flex gap-0.5 overflow-x-auto border-b border-[var(--border)] mb-6 scrollbar-thin"
+      className="flex gap-0.5 overflow-x-auto overscroll-x-contain border-b border-[var(--border)] mb-6 no-scrollbar"
       aria-label="Exercise sections"
     >
       {EXERCISE_PANELS.map((tab) => {

@@ -315,7 +315,7 @@ export function ExercisesPage() {
   const overviewPanel = (
     <div className="space-y-4">
       {stats && stats.totalSets > 0 ? (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           <MetricTile label="Sets" value={String(stats.totalSets)} />
           <MetricTile label="Reps" value={String(stats.totalReps)} />
           <MetricTile
