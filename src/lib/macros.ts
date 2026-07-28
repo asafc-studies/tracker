@@ -79,3 +79,74 @@ export function remainingLabel(current: number, target: number, unit: string) {
   if (diff < 0) return `${Math.abs(diff)}${unit} over`;
   return `On target`;
 }
+
+export type MacroWarningMetric = "fat" | "calories" | "protein" | "carbs";
+
+export type MacroWarning = {
+  metric: MacroWarningMetric;
+  severity: "warn" | "high";
+  title: string;
+  detail: string;
+};
+
+/** Flags problematic intake vs targets (overs on fat/calories, short protein). */
+export function getMacroWarnings(
+  intake: MacroTotals,
+  targets: {
+    calorieTarget: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+  },
+): MacroWarning[] {
+  const warnings: MacroWarning[] = [];
+  if (!targets.calorieTarget) return warnings;
+
+  const fatOver = Math.round(intake.fatG - targets.fatG);
+  const calOver = Math.round(intake.calories - targets.calorieTarget);
+  const proteinShort = Math.round(targets.proteinG - intake.proteinG);
+  const carbShort = Math.round(targets.carbsG - intake.carbsG);
+  const dayStarted = intake.calories >= targets.calorieTarget * 0.35;
+
+  if (targets.fatG > 0 && fatOver >= 8) {
+    warnings.push({
+      metric: "fat",
+      severity: fatOver >= 18 ? "high" : "warn",
+      title:
+        fatOver >= 18
+          ? `Fat is well over target (+${fatOver}g)`
+          : `Fat is over target (+${fatOver}g)`,
+      detail: `Logged ${Math.round(intake.fatG)}g vs ${targets.fatG}g. Extra fat burns through the calorie budget fast (9 kcal/g) and often crowds out carbs for lifting.`,
+    });
+  }
+
+  if (calOver >= 120) {
+    warnings.push({
+      metric: "calories",
+      severity: calOver >= 250 ? "high" : "warn",
+      title: `Calories over target (+${calOver} kcal)`,
+      detail: `Logged ${Math.round(intake.calories)} vs ${targets.calorieTarget} kcal. That shrinks your recomp deficit for the day.`,
+    });
+  }
+
+  if (dayStarted && proteinShort >= 25) {
+    warnings.push({
+      metric: "protein",
+      severity: proteinShort >= 45 ? "high" : "warn",
+      title: `Protein short of target (−${proteinShort}g)`,
+      detail: `${Math.round(intake.proteinG)}g / ${targets.proteinG}g. In a deficit, staying close to target helps protect muscle.`,
+    });
+  }
+
+  if (dayStarted && fatOver >= 8 && carbShort >= 30) {
+    warnings.push({
+      metric: "carbs",
+      severity: "warn",
+      title: `Carbs crowded out (−${carbShort}g)`,
+      detail: `${Math.round(intake.carbsG)}g / ${targets.carbsG}g. High fat intake left less room for training fuel.`,
+    });
+  }
+
+  return warnings;
+}
+

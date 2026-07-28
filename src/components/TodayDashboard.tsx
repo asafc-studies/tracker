@@ -3,23 +3,36 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
+import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
+import { NutritionCoach } from "@/components/NutritionCoach";
 import { apiFetch } from "@/lib/api-fetch";
+import { getMacroWarnings } from "@/lib/macros";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
 
 type ProfilePayload = {
   profile: {
     weightKg: number | null;
+    bodyFatPercent?: number | null;
   } | null;
   targets: {
     calorieTarget: number;
     proteinG: number;
+    carbsG: number;
+    fatG: number;
     tdee: number;
+    deficit: number;
+    bodyFatPercent?: number;
   } | null;
 };
 
 type MacrosPayload = {
-  totals: { proteinG: number; calories: number };
+  totals: {
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    calories: number;
+  };
 };
 
 export function TodayDashboard() {
@@ -44,6 +57,7 @@ export function TodayDashboard() {
 
   const protein = macros?.totals.proteinG ?? 0;
   const calories = macros?.totals.calories ?? 0;
+  const hasLogged = (macros?.totals.calories ?? 0) > 0;
 
   return (
     <AppShell title="Today">
@@ -110,6 +124,40 @@ export function TodayDashboard() {
               </p>
             </div>
           </section>
+
+          {hasLogged && macros ? (
+            <>
+              <MacroWarningsBanner
+                warnings={getMacroWarnings(macros.totals, {
+                  calorieTarget: profile.targets.calorieTarget,
+                  proteinG: profile.targets.proteinG,
+                  carbsG: profile.targets.carbsG,
+                  fatG: profile.targets.fatG,
+                })}
+              />
+              <NutritionCoach
+                intake={macros.totals}
+                targets={{
+                  calorieTarget: profile.targets.calorieTarget,
+                  proteinG: profile.targets.proteinG,
+                  carbsG: profile.targets.carbsG,
+                  fatG: profile.targets.fatG,
+                  tdee: profile.targets.tdee,
+                  deficit: profile.targets.deficit,
+                  bodyFatPercent:
+                    profile.targets.bodyFatPercent ??
+                    profile.profile?.bodyFatPercent ??
+                    undefined,
+                  weightKg: profile.profile?.weightKg,
+                }}
+              />
+            </>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">
+              Log food to get a recomp check vs your targets and a body-fat
+              recheck timeline.
+            </p>
+          )}
 
           <section className="space-y-3">
             <p className="text-xs uppercase tracking-wider text-[var(--muted)]">

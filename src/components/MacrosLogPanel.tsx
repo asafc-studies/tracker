@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
+import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
+import { NutritionCoach } from "@/components/NutritionCoach";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
-import { progressRatio, remainingLabel } from "@/lib/macros";
+import { getMacroWarnings, progressRatio, remainingLabel } from "@/lib/macros";
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -33,7 +35,19 @@ type MacrosPayload = {
 };
 
 type ProfilePayload = {
-  targets: { proteinG: number; calorieTarget: number } | null;
+  profile?: {
+    weightKg?: number | null;
+    bodyFatPercent?: number | null;
+  } | null;
+  targets: {
+    proteinG: number;
+    calorieTarget: number;
+    carbsG: number;
+    fatG: number;
+    tdee: number;
+    deficit: number;
+    bodyFatPercent?: number;
+  } | null;
 };
 
 type Props = {
@@ -74,9 +88,23 @@ export function MacrosLogPanel({ date }: Props) {
     fatG: 0,
     calories: 0,
   };
-  const proteinTarget = profileQuery.data?.targets?.proteinG ?? 0;
-  const calorieTarget = profileQuery.data?.targets?.calorieTarget ?? 0;
-  const hasTargets = Boolean(profileQuery.data?.targets);
+  const targets = profileQuery.data?.targets ?? null;
+  const proteinTarget = targets?.proteinG ?? 0;
+  const calorieTarget = targets?.calorieTarget ?? 0;
+  const hasTargets = Boolean(targets);
+  const warnings =
+    targets != null
+      ? getMacroWarnings(totals, {
+          calorieTarget: targets.calorieTarget,
+          proteinG: targets.proteinG,
+          carbsG: targets.carbsG,
+          fatG: targets.fatG,
+        })
+      : [];
+  const fatWarned = warnings.some((w) => w.metric === "fat");
+  const calWarned = warnings.some((w) => w.metric === "calories");
+  const proteinWarned = warnings.some((w) => w.metric === "protein");
+  const carbWarned = warnings.some((w) => w.metric === "carbs");
 
   async function refreshAfterWrite() {
     await invalidateAfterMacros(queryClient, date);
@@ -222,15 +250,28 @@ export function MacrosLogPanel({ date }: Props) {
                 <p className="text-xs text-[var(--accent)]">
                   {remainingLabel(totals.proteinG, proteinTarget, "g")}
                 </p>
+                {proteinWarned ? (
+                  <p className="text-xs text-[var(--warn)] mt-0.5">
+                    Below recomp target
+                  </p>
+                ) : null}
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
                   Calories
                 </p>
-                <p className="text-2xl sm:text-3xl font-semibold">
+                <p
+                  className={`text-2xl sm:text-3xl font-semibold ${
+                    calWarned ? "text-[var(--warn)]" : ""
+                  }`}
+                >
                   {Math.round(totals.calories)}
                 </p>
-                <p className="text-xs text-[var(--accent)]">
+                <p
+                  className={`text-xs ${
+                    calWarned ? "text-[var(--warn)]" : "text-[var(--accent)]"
+                  }`}
+                >
                   {remainingLabel(totals.calories, calorieTarget, " kcal")}
                 </p>
               </div>
@@ -239,13 +280,15 @@ export function MacrosLogPanel({ date }: Props) {
               <div>
                 <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
                   <span>Protein</span>
-                  <span>
+                  <span className={proteinWarned ? "text-[var(--warn)]" : ""}>
                     {Math.round(totals.proteinG)}/{proteinTarget}g
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
                   <div
-                    className="h-full bg-[var(--accent)] transition-all duration-500"
+                    className={`h-full transition-all duration-500 ${
+                      proteinWarned ? "bg-[var(--warn)]" : "bg-[var(--accent)]"
+                    }`}
                     style={{
                       width: `${progressRatio(totals.proteinG, proteinTarget) * 100}%`,
                     }}
@@ -255,19 +298,53 @@ export function MacrosLogPanel({ date }: Props) {
               <div>
                 <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
                   <span>Calories</span>
-                  <span>
+                  <span className={calWarned ? "text-[var(--warn)]" : ""}>
                     {Math.round(totals.calories)}/{calorieTarget}
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
                   <div
-                    className="h-full bg-[var(--accent)]/70 transition-all duration-500"
+                    className={`h-full transition-all duration-500 ${
+                      calWarned
+                        ? "bg-[var(--warn)]"
+                        : "bg-[var(--accent)]/70"
+                    }`}
                     style={{
-                      width: `${progressRatio(totals.calories, calorieTarget) * 100}%`,
+                      width: `${Math.min(100, progressRatio(totals.calories, calorieTarget) * 100)}%`,
                     }}
                   />
                 </div>
               </div>
+              {targets ? (
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span
+                      className={
+                        fatWarned ? "text-[var(--warn)]" : "text-[var(--muted)]"
+                      }
+                    >
+                      Fat{fatWarned ? " — over" : ""}
+                    </span>
+                    <span
+                      className={
+                        fatWarned ? "text-[var(--warn)]" : "text-[var(--muted)]"
+                      }
+                    >
+                      {Math.round(totals.fatG)}/{targets.fatG}g
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        fatWarned ? "bg-[var(--warn)]" : "bg-[var(--accent)]/50"
+                      }`}
+                      style={{
+                        width: `${Math.min(100, progressRatio(totals.fatG, targets.fatG) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </>
         ) : (
@@ -283,9 +360,42 @@ export function MacrosLogPanel({ date }: Props) {
           </p>
         )}
         <p className="text-xs text-[var(--muted)]">
-          Carbs {Math.round(totals.carbsG)}g · Fat {Math.round(totals.fatG)}g
+          Carbs{" "}
+          <span className={carbWarned ? "text-[var(--warn)]" : undefined}>
+            {Math.round(totals.carbsG)}g
+            {targets ? ` / ${targets.carbsG}g` : ""}
+          </span>
+          {" · "}
+          Fat{" "}
+          <span className={fatWarned ? "text-[var(--warn)] font-medium" : undefined}>
+            {Math.round(totals.fatG)}g
+            {targets ? ` / ${targets.fatG}g` : ""}
+            {fatWarned ? " over" : ""}
+          </span>
         </p>
       </section>
+
+      <MacroWarningsBanner warnings={warnings} />
+
+      {targets && totals.calories > 0 ? (
+        <NutritionCoach
+          compact
+          intake={totals}
+          targets={{
+            calorieTarget: targets.calorieTarget,
+            proteinG: targets.proteinG,
+            carbsG: targets.carbsG,
+            fatG: targets.fatG,
+            tdee: targets.tdee,
+            deficit: targets.deficit,
+            bodyFatPercent:
+              targets.bodyFatPercent ??
+              profileQuery.data?.profile?.bodyFatPercent ??
+              undefined,
+            weightKg: profileQuery.data?.profile?.weightKg,
+          }}
+        />
+      ) : null}
 
       <section>
         <h2 className="text-sm text-[var(--muted)] mb-3">Add food</h2>
