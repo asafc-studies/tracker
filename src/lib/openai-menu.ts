@@ -185,69 +185,290 @@ export async function buildMenuImproveContext(userId: string) {
   };
 }
 
-export async function improveMenuWithOpenAI(
-  userId: string,
-): Promise<ImprovedMenuResult> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error(
-      "OPENAI_API_KEY is not set. Add it to .env.local and your server env.",
-    );
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+type ProviderId = "github" | "gemini" | "openai";
+
+function env(...names: string[]) {
+  for (const name of names) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function resolveProvider(): {
+  id: ProviderId;
+  apiKey: string;
+  model: string;
+} {
+  const forced = env("AI_MENU_PROVIDER").toLowerCase() as ProviderId | "";
+
+  const githubKey = env("GITHUB_MODELS_TOKEN", "GITHUB_TOKEN");
+  const geminiKey = env("GEMINI_API_KEY");
+  const openaiKey = env("OPENAI_API_KEY", "OPENAI_KEY", "OPENAIKEY");
+
+  if (forced === "github" || (!forced && githubKey)) {
+    if (!githubKey) {
+      throw new Error(
+        "AI_MENU_PROVIDER=github but GITHUB_MODELS_TOKEN (or GITHUB_TOKEN) is missing.",
+      );
+    }
+    return {
+      id: "github",
+      apiKey: githubKey,
+      model: env("AI_MENU_MODEL", "GITHUB_MODELS_MODEL") || "openai/gpt-4o-mini",
+    };
   }
 
-  const context = await buildMenuImproveContext(userId);
-  const model = process.env.OPENAI_MENU_MODEL?.trim() || "gpt-4o-mini";
+  if (forced === "gemini" || (!forced && geminiKey)) {
+    if (!geminiKey) {
+      throw new Error(
+        "AI_MENU_PROVIDER=gemini but GEMINI_API_KEY is missing.",
+      );
+    }
+    return {
+      id: "gemini",
+      apiKey: geminiKey,
+      model: env("AI_MENU_MODEL", "GEMINI_MENU_MODEL") || "gemini-2.0-flash",
+    };
+  }
 
-  const system = `You are a body-recomposition nutrition assistant.
-Goal: maintain/build muscle while losing fat with a modest calorie deficit.
-Prefer keeping the user's familiar foods and meal structure; make small realistic swaps/portion tweaks.
-Fix issues like excess fat, low protein, low carbs for lifting, or deep deficits.
-Return ONLY valid JSON (no markdown) with shape:
-{"rationale":"short paragraph","items":[{"name":"string","mealSlot":"breakfast|lunch|dinner|snack","quantity":1,"proteinG":0,"carbsG":0,"fatG":0,"calories":0}]}
-Macros must be numbers. Aim totals near the calorie/protein/carb/fat targets.
-Keep 4–10 items. Stay close to the current plan when possible.`;
+  if (forced === "openai" || openaiKey) {
+    if (!openaiKey) {
+      throw new Error(
+        "AI_MENU_PROVIDER=openai but OPENAI_API_KEY is missing.",
+      );
+    }
+    return {
+      id: "openai",
+      apiKey: openaiKey,
+      model: env("AI_MENU_MODEL", "OPENAI_MENU_MODEL") || "gpt-4o-mini",
+    };
+  }
 
-  const user = JSON.stringify({
-    instruction:
-      "Improve this standing daily menu for tomorrow based on recent logging problems and targets.",
-    targets: context.targets,
-    todayProblems: context.todayWarnings,
-    currentStandingPlan: context.currentPlan,
-    recentLoggedDays: context.recentDays,
-  });
+  throw new Error(
+    "No AI key found. Prefer free GitHub Models: create a PAT with models:read and set GITHUB_MODELS_TOKEN in .env.local (or use GEMINI_API_KEY). Restart the server after saving.",
+  );
+}
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{")) return trimmed;
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) return fence[1].trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+  return trimmed;
+}
+
+async function chatCompletionsOpenAICompatible(opts: {
+  url: string;
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  extraHeaders?: Record<string, string>;
+  providerLabel: string;
+  useJsonObjectFormat?: boolean;
+}) {
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    temperature: 0.55,
+    messages: opts.messages,
+  };
+  if (opts.useJsonObjectFormat !== false) {
+    body.response_format = { type: "json_object" };
+  }
+
+  const res = await fetch(opts.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${opts.apiKey}`,
       "Content-Type": "application/json",
+      ...opts.extraHeaders,
     },
-    body: JSON.stringify({
-      model,
-      temperature: 0.4,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   const data = (await res.json()) as {
-    error?: { message?: string };
+    error?: { message?: string; type?: string; code?: string };
+    message?: string;
     choices?: Array<{ message?: { content?: string } }>;
   };
 
   if (!res.ok) {
-    throw new Error(data.error?.message || `OpenAI error (${res.status})`);
+    const apiMsg =
+      data.error?.message || data.message || `${opts.providerLabel} error (${res.status})`;
+    if (res.status === 429 || data.error?.code === "insufficient_quota") {
+      throw new Error(
+        `${opts.providerLabel} quota/rate limit: ${apiMsg}`,
+      );
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `${opts.providerLabel} auth failed (${res.status}). Check the token/key in .env.local and restart the server. ${apiMsg}`,
+      );
+    }
+    throw new Error(`${opts.providerLabel} ${res.status}: ${apiMsg}`);
   }
 
   const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Empty response from OpenAI");
+  if (!content) throw new Error(`Empty response from ${opts.providerLabel}`);
+  return content;
+}
+
+async function chatCompletionsGemini(opts: {
+  apiKey: string;
+  model: string;
+  system: string;
+  user: string;
+}) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: opts.system }] },
+      contents: [{ role: "user", parts: [{ text: opts.user }] }],
+      generationConfig: {
+        temperature: 0.55,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  const data = (await res.json()) as {
+    error?: { message?: string; status?: string };
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }>;
+  };
+
+  if (!res.ok) {
+    const apiMsg = data.error?.message || `Gemini error (${res.status})`;
+    if (res.status === 429) {
+      throw new Error(`Gemini quota/rate limit: ${apiMsg}`);
+    }
+    if (res.status === 400 || res.status === 403) {
+      throw new Error(`Gemini auth/config (${res.status}): ${apiMsg}`);
+    }
+    throw new Error(`Gemini ${res.status}: ${apiMsg}`);
+  }
+
+  const content = data.candidates?.[0]?.content?.parts
+    ?.map((p) => p.text || "")
+    .join("")
+    .trim();
+  if (!content) throw new Error("Empty response from Gemini");
+  return content;
+}
+
+export async function improveMenuWithAI(
+  userId: string,
+): Promise<ImprovedMenuResult> {
+  const provider = resolveProvider();
+  const context = await buildMenuImproveContext(userId);
+
+  const planTotals = sumMacros(
+    context.currentPlan.map((item) => ({
+      proteinG: item.proteinG,
+      carbsG: item.carbsG,
+      fatG: item.fatG,
+      calories: item.calories,
+    })),
+  );
+
+  const gaps = {
+    proteinG: Math.round(context.targets.proteinG - planTotals.proteinG),
+    carbsG: Math.round(context.targets.carbsG - planTotals.carbsG),
+    fatG: Math.round(context.targets.fatG - planTotals.fatG),
+    calories: Math.round(context.targets.calorieTarget - planTotals.calories),
+  };
+
+  const system = `You are a body-recomposition meal planner.
+Primary goal: hit the user's daily macro TARGETS as closely as possible.
+Secondary goal: keep the menu recognizable — same meal pattern and mostly familiar foods.
+
+PRIORITY ORDER (strict):
+1) Protein within ±10g of target (highest priority)
+2) Calories within ±80 kcal of target
+3) Fat within ±5g of target (do not overshoot fat)
+4) Carbs fill remaining calories (within ±20g when possible)
+
+RULES:
+- Start from currentStandingPlan. Keep meal slots (breakfast/lunch/dinner/snack) when possible.
+- Prefer portion changes and lean swaps over inventing a totally new diet.
+- If fat is high: reduce oils/sauces/fatty cuts; replace with leaner protein + carbs.
+- If protein is low: add/increase whey, chicken, turkey, fish, low-fat dairy, egg whites.
+- If carbs are low and fat is fine: add rice, pasta, potato, fruit, oats — not more fat.
+- Do NOT make tiny cosmetic edits. If gaps are large, change portions enough to close them.
+- Keep 4–10 items. Use realistic macro numbers that sum near the targets.
+- Rationale must mention the old vs new totals and the key swaps.
+
+Return ONLY valid JSON (no markdown):
+{"rationale":"2-4 sentences","items":[{"name":"string","mealSlot":"breakfast|lunch|dinner|snack","quantity":1,"proteinG":0,"carbsG":0,"fatG":0,"calories":0}],"projectedTotals":{"proteinG":0,"carbsG":0,"fatG":0,"calories":0}}`;
+
+  const user = JSON.stringify({
+    instruction:
+      "Rewrite the standing daily menu so projectedTotals land on targets. Close the gaps below. Keep foods familiar.",
+    mustHitTargets: context.targets,
+    currentPlanTotals: planTotals,
+    gapsToClose: gaps,
+    meaningOfGaps:
+      "Positive gap = need more of that macro. Negative gap = need less.",
+    recentProblems: context.todayWarnings,
+    currentStandingPlan: context.currentPlan,
+    recentLoggedDays: context.recentDays,
+    acceptance:
+      "Reject tiny edits. Protein and calories must clearly move toward targets.",
+  });
+
+  let content: string;
+  if (provider.id === "github") {
+    content = await chatCompletionsOpenAICompatible({
+      url: "https://models.github.ai/inference/chat/completions",
+      apiKey: provider.apiKey,
+      model: provider.model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      extraHeaders: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      providerLabel: "GitHub Models",
+      // Some GitHub-hosted models reject response_format
+      useJsonObjectFormat: false,
+    });
+  } else if (provider.id === "gemini") {
+    content = await chatCompletionsGemini({
+      apiKey: provider.apiKey,
+      model: provider.model,
+      system,
+      user,
+    });
+  } else {
+    content = await chatCompletionsOpenAICompatible({
+      url: "https://api.openai.com/v1/chat/completions",
+      apiKey: provider.apiKey,
+      model: provider.model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      providerLabel: "OpenAI",
+      useJsonObjectFormat: true,
+    });
+  }
 
   let parsed: { rationale?: string; items?: unknown };
   try {
-    parsed = JSON.parse(content) as { rationale?: string; items?: unknown };
+    parsed = JSON.parse(extractJsonObject(content)) as {
+      rationale?: string;
+      items?: unknown;
+    };
   } catch {
     throw new Error("Could not parse AI menu JSON");
   }
@@ -259,7 +480,14 @@ Keep 4–10 items. Stay close to the current plan when possible.`;
 
   return {
     items,
-    rationale: String(parsed.rationale || "Improved menu for your recomp targets."),
-    model,
+    rationale: String(
+      parsed.rationale || "Improved menu for your recomp targets.",
+    ),
+    model: `${provider.id}:${provider.model}`,
   };
+}
+
+/** @deprecated Use improveMenuWithAI */
+export async function improveMenuWithOpenAI(userId: string) {
+  return improveMenuWithAI(userId);
 }

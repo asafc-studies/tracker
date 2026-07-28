@@ -291,6 +291,13 @@ export function MenuDailyPanel({ date }: { date: string }) {
         ) : null}
       </div>
 
+      <p className="text-[11px] text-[var(--muted)] leading-relaxed">
+        Uses GitHub Models by default (free with a PAT). Set{" "}
+        <code className="text-[var(--foreground)]">GITHUB_MODELS_TOKEN</code> in
+        .env.local, or{" "}
+        <code className="text-[var(--foreground)]">GEMINI_API_KEY</code>.
+      </p>
+
       {aiError ? (
         <p className="text-xs text-[var(--warn)] leading-relaxed">{aiError}</p>
       ) : null}
