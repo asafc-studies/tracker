@@ -20,10 +20,12 @@ export function FoodSearch({ onSelect, onManual }: Props) {
   const [mlAmount, setMlAmount] = useState(250);
   const [barcodeMode, setBarcodeMode] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState("");
-  const [scanning, setScanning] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [detectorSupported, setDetectorSupported] = useState(true);
   const [scanError, setScanError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const detectLoopRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const field =
@@ -55,63 +57,151 @@ export function FoodSearch({ onSelect, onManual }: Props) {
     }, 300);
   }, []);
 
+  const stopScanner = useCallback(() => {
+    cancelAnimationFrame(detectLoopRef.current);
+    detectLoopRef.current = 0;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       stopScanner();
     };
-  }, []);
+  }, [stopScanner]);
 
-  function stopScanner() {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setScanning(false);
-  }
-
-  async function startScanner() {
-    setScanError("");
-    setBarcodeMode(true);
-    if (!("BarcodeDetector" in window)) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setScanning(true);
-
-      const Detector = window.BarcodeDetector;
-      if (!Detector) return;
-      const detector = new Detector({ formats: ["ean_13", "ean_8", "upc_a"] as string[] });
-      const tick = async () => {
-        if (!videoRef.current || !streamRef.current) return;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) {
-            stopScanner();
-            await lookupBarcode(codes[0].rawValue);
-            return;
-          }
-        } catch {
-          // continue scanning
-        }
-        if (streamRef.current) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    } catch {
-      setScanError("Camera access denied or unavailable.");
+  /** Start camera only after the <video> is in the DOM (barcodeMode). */
+  useEffect(() => {
+    if (!barcodeMode) {
+      stopScanner();
+      return;
     }
-  }
+
+    let cancelled = false;
+    const hasDetector = typeof window !== "undefined" && "BarcodeDetector" in window;
+    setDetectorSupported(hasDetector);
+    setScanError("");
+    setCameraReady(false);
+
+    async function lookupAndSelect(code: string) {
+      setLoading(true);
+      setScanError("");
+      try {
+        const res = await fetch(
+          `/api/foods/barcode?code=${encodeURIComponent(code)}`,
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          setScanError(data.error || "Product not found");
+          return;
+        }
+        setSelected(data.food);
+        setQuantity(1);
+        setBarcodeMode(false);
+        setBarcodeInput("");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function start() {
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (!video) {
+          setScanError("Camera preview failed to load. Try again.");
+          return;
+        }
+
+        video.srcObject = stream;
+        video.muted = true;
+        video.setAttribute("playsinline", "true");
+        await video.play();
+        if (cancelled) return;
+        setCameraReady(true);
+
+        if (!hasDetector || !window.BarcodeDetector) return;
+
+        const detector = new window.BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
+        });
+
+        const tick = async () => {
+          if (cancelled || !videoRef.current || !streamRef.current) return;
+          try {
+            const codes = await detector.detect(videoRef.current);
+            if (codes.length > 0) {
+              const code = codes[0].rawValue;
+              stopScanner();
+              setBarcodeMode(false);
+              await lookupAndSelect(code);
+              return;
+            }
+          } catch {
+            // keep scanning
+          }
+          if (!cancelled && streamRef.current) {
+            detectLoopRef.current = requestAnimationFrame(() => {
+              void tick();
+            });
+          }
+        };
+        detectLoopRef.current = requestAnimationFrame(() => {
+          void tick();
+        });
+      } catch {
+        if (!cancelled) {
+          setScanError(
+            "Camera access denied or unavailable. Enter the barcode manually.",
+          );
+        }
+      }
+    }
+
+    const raf = requestAnimationFrame(() => {
+      void start();
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      stopScanner();
+    };
+  }, [barcodeMode, stopScanner]);
 
   async function lookupBarcode(code: string) {
     setLoading(true);
     setScanError("");
     try {
-      const res = await fetch(`/api/foods/barcode?code=${encodeURIComponent(code)}`);
+      const res = await fetch(
+        `/api/foods/barcode?code=${encodeURIComponent(code)}`,
+      );
       const data = await res.json();
       if (!res.ok) {
         setScanError(data.error || "Product not found");
@@ -139,11 +229,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
   function confirmAdd() {
     if (!selected) return;
     if (selected.servingUnit === "ml" && selected.servingAmount) {
-      onSelect(
-        selected,
-        mlAmount / selected.servingAmount,
-        mlAmount,
-      );
+      onSelect(selected, mlAmount / selected.servingAmount, mlAmount);
     } else {
       onSelect(selected, quantity);
     }
@@ -182,7 +268,9 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             {loading ? (
               <p className="px-3 py-2 text-xs text-[var(--muted)]">Searching…</p>
             ) : results.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-[var(--muted)]">No matches — try manual entry</p>
+              <p className="px-3 py-2 text-xs text-[var(--muted)]">
+                No matches — try manual entry
+              </p>
             ) : (
               results.map((r) => (
                 <button
@@ -197,7 +285,9 @@ export function FoodSearch({ onSelect, onManual }: Props) {
                     {r.proteinG}g P · {r.calories} kcal · {r.servingLabel}
                     {r.source === "reference" ? " · staple" : ""}
                     {r.dataSourceLabel ? ` · ${r.dataSourceLabel}` : ""}
-                    {r.offScope === "global" && !r.dataSourceLabel ? " · global" : ""}
+                    {r.offScope === "global" && !r.dataSourceLabel
+                      ? " · global"
+                      : ""}
                   </span>
                 </button>
               ))
@@ -209,11 +299,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => {
-            setBarcodeMode((v) => !v);
-            if (!barcodeMode) void startScanner();
-            else stopScanner();
-          }}
+          onClick={() => setBarcodeMode((v) => !v)}
           className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs hover:border-[var(--accent)]"
         >
           {barcodeMode ? "Close scanner" : "Scan barcode"}
@@ -231,13 +317,30 @@ export function FoodSearch({ onSelect, onManual }: Props) {
 
       {barcodeMode ? (
         <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-          {scanning ? (
-            <video ref={videoRef} className="w-full max-h-48 rounded-md bg-black" muted playsInline />
-          ) : (
+          <div className="relative overflow-hidden rounded-md bg-black aspect-[4/3] max-h-56">
+            <video
+              ref={videoRef}
+              className="absolute inset-0 h-full w-full object-cover"
+              muted
+              playsInline
+              autoPlay
+            />
+            {!cameraReady && !scanError ? (
+              <p className="absolute inset-0 flex items-center justify-center text-xs text-white/80 px-4 text-center">
+                Starting camera…
+              </p>
+            ) : null}
+          </div>
+          {!detectorSupported ? (
             <p className="text-xs text-[var(--muted)]">
-              Camera scanning not supported on this browser — enter barcode manually:
+              Live barcode detection isn’t supported in this browser — use the
+              field below, or try Chrome / Edge on Android.
             </p>
-          )}
+          ) : cameraReady ? (
+            <p className="text-xs text-[var(--muted)]">
+              Point at the barcode — it scans automatically.
+            </p>
+          ) : null}
           <form
             className="flex gap-2"
             onSubmit={(e) => {
@@ -250,6 +353,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               placeholder="Barcode number"
               value={barcodeInput}
               onChange={(e) => setBarcodeInput(e.target.value)}
+              inputMode="numeric"
             />
             <button
               type="submit"
@@ -258,7 +362,9 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               Look up
             </button>
           </form>
-          {scanError ? <p className="text-xs text-red-400">{scanError}</p> : null}
+          {scanError ? (
+            <p className="text-xs text-red-400">{scanError}</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -325,7 +431,8 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             )}
           </div>
           <p className="text-sm">
-            {scaled.proteinG}g P · {scaled.carbsG}g C · {scaled.fatG}g F · {scaled.calories} kcal
+            {scaled.proteinG}g P · {scaled.carbsG}g C · {scaled.fatG}g F ·{" "}
+            {scaled.calories} kcal
           </p>
           <div className="flex gap-2">
             <button
