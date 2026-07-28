@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FoodSearchResult } from "@/lib/food-reference";
 import { scaleFood } from "@/lib/food-reference";
+import { formatMacroShort } from "@/lib/macros";
 
 type Props = {
   onSelect: (food: FoodSearchResult, quantity: number, mlAmount?: number) => void;
@@ -294,7 +295,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
                   <span className="block text-sm font-medium">{r.name}</span>
                   <span className="text-xs text-[var(--muted)]">
                     {r.brand ? `${r.brand} · ` : ""}
-                    {r.proteinG}g P · {r.calories} kcal · {r.servingLabel}
+                    {formatMacroShort(r)} · {r.servingLabel}
                     {r.source === "reference" ? " · staple" : ""}
                     {r.dataSourceLabel ? ` · ${r.dataSourceLabel}` : ""}
                     {r.offScope === "global" && !r.dataSourceLabel
@@ -451,10 +452,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               </label>
             )}
           </div>
-          <p className="text-sm">
-            {scaled.proteinG}g P · {scaled.carbsG}g C · {scaled.fatG}g F ·{" "}
-            {scaled.calories} kcal
-          </p>
+          <p className="text-sm">{formatMacroShort(scaled)}</p>
           <div className="flex gap-2">
             <button
               type="button"

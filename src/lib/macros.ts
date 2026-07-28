@@ -80,6 +80,21 @@ export function remainingLabel(current: number, target: number, unit: string) {
   return `On target`;
 }
 
+/** Compact macros line, e.g. "P 46 · C 0 · F 5 · K 231" */
+export function formatMacroShort(macros: {
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  calories: number;
+}) {
+  const p = Math.round(macros.proteinG * 10) / 10;
+  const c = Math.round(macros.carbsG * 10) / 10;
+  const f = Math.round(macros.fatG * 10) / 10;
+  const k = Math.round(macros.calories);
+  return `P ${p} · C ${c} · F ${f} · K ${k}`;
+}
+
+
 export type MacroWarningMetric = "fat" | "calories" | "protein" | "carbs";
 
 export type MacroWarning = {

@@ -6,7 +6,7 @@ import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
-import { progressRatio, remainingLabel } from "@/lib/macros";
+import { progressRatio, remainingLabel, formatMacroShort } from "@/lib/macros";
 import { invalidateAfterMenu } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -330,9 +330,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
                   {item.name}
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  {item.mealSlot} · {Math.round(item.proteinG)}g P ·{" "}
-                  {Math.round(item.carbsG)}g C · {Math.round(item.fatG)}g F ·{" "}
-                  {Math.round(item.calories)} kcal
+                  {item.mealSlot} · {formatMacroShort(item)}
                 </p>
               </div>
               <button
@@ -484,7 +482,7 @@ export function MenuTemplatesPanel({
                   className="text-xs text-[var(--muted)] flex justify-between gap-2"
                 >
                   <span className="truncate">
-                    {item.name} — {item.proteinG}g P · {item.calories} kcal
+                    {item.name} — {formatMacroShort(item)}
                   </span>
                   <button
                     type="button"
@@ -529,8 +527,7 @@ export function MenuTemplatesPanel({
                     <ul className="mt-2 space-y-1">
                       {t.items.map((item) => (
                         <li key={item.id} className="text-xs text-[var(--muted)]">
-                          {item.name} — {item.proteinG}g P · {item.calories}{" "}
-                          kcal
+                          {item.name} — {formatMacroShort(item)}
                         </li>
                       ))}
                     </ul>

@@ -9,7 +9,7 @@ import { NutritionCoach } from "@/components/NutritionCoach";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
-import { getMacroWarnings, progressRatio, remainingLabel } from "@/lib/macros";
+import { formatMacroShort, getMacroWarnings, progressRatio, remainingLabel } from "@/lib/macros";
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -489,8 +489,7 @@ export function MacrosLogPanel({ date }: Props) {
                     <div className="space-y-3">
                       <p className="text-sm font-medium truncate">{f.name}</p>
                       <p className="text-xs text-[var(--muted)]">
-                        {Math.round(f.proteinG * 10) / 10}g P ·{" "}
-                        {Math.round(f.calories)} kcal at current amount
+                        {formatMacroShort(f)} at current amount
                       </p>
                       <label className="space-y-1 block">
                         <span className="text-xs text-[var(--muted)]">
@@ -541,8 +540,7 @@ export function MacrosLogPanel({ date }: Props) {
                         <p className="text-xs text-[var(--muted)]">
                           {f.brand ? `${f.brand} · ` : ""}
                           {qty !== 1 ? `×${qty} · ` : ""}
-                          {Math.round(f.proteinG * 10) / 10}g P ·{" "}
-                          {Math.round(f.calories)} kcal
+                          {formatMacroShort(f)}
                         </p>
                       </div>
                       <div className="flex gap-2 shrink-0">
