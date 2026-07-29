@@ -35,6 +35,7 @@ type ProfilePayload = {
     sex?: Sex | null;
     bodyFatPercent?: number | null;
     activityLevel?: string | null;
+    goalTarget?: string | null;
   } | null;
   targets?: Targets | null;
 };
@@ -48,6 +49,7 @@ export function CalculatorPage() {
   const [bodyFatPercent, setBodyFatPercent] = useState(15);
   const [activityLevel, setActivityLevel] =
     useState<ActivityLevel>("moderate");
+  const [goalTarget, setGoalTarget] = useState("");
   const [targets, setTargets] = useState<Targets | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,6 +75,7 @@ export function CalculatorPage() {
         const a = data.profile.activityLevel as ActivityLevel;
         setActivityLevel(a === "very_active" ? "active" : a);
       }
+      if (data.profile.goalTarget) setGoalTarget(data.profile.goalTarget);
     }
     if (data.targets) setTargets(data.targets);
     setHydrated(true);
@@ -94,6 +97,7 @@ export function CalculatorPage() {
           activityLevel,
           deficitKcal: DEFAULT_DEFICIT_KCAL,
           proteinPerKg: DEFAULT_PROTEIN_PER_KG,
+          goalTarget: goalTarget.trim() || null,
         }),
       });
       setTargets(data.targets ?? null);
@@ -192,6 +196,21 @@ export function CalculatorPage() {
             </select>
           </label>
         </div>
+
+        <label className="block space-y-1.5">
+          <span className="text-xs text-[var(--muted)]">Target</span>
+          <textarea
+            className={`${field} min-h-[72px] resize-y`}
+            value={goalTarget}
+            onChange={(e) => setGoalTarget(e.target.value)}
+            placeholder='e.g. "Lose fat while keeping strength" or "Recomp — slow cut"'
+            maxLength={500}
+            rows={3}
+          />
+          <span className="text-[11px] text-[var(--muted)] leading-relaxed block">
+            Open text used by Today tips, workout tips, and future plans.
+          </span>
+        </label>
 
         <p className="text-xs text-[var(--muted)] leading-relaxed">
           BMR uses Katch-McArdle from lean mass. Target = TDEE − {DEFAULT_DEFICIT_KCAL}{" "}

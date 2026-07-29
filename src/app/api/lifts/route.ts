@@ -13,7 +13,66 @@ import {
   summarizeRegions,
   type ExerciseGroup,
 } from "@/lib/exercises";
-import { caloriesBurnedResistance, todayISODate } from "@/lib/tdee";
+import {
+  caloriesBurnedSession,
+  looksLikeCardioSession,
+  todayISODate,
+} from "@/lib/tdee";
+
+function sessionIsCardio(
+  name: string | null | undefined,
+  sets?: Array<{ lift: string; category?: string | null }>,
+) {
+  if (looksLikeCardioSession(name)) return true;
+  return (sets ?? []).some((s) => getExercise(s.lift)?.type === "cardio");
+}
+
+function eeeForSession(
+  bodyWeightKg: number | null,
+  durationMinutes: number | null | undefined,
+  opts: {
+    name?: string | null;
+    distanceKm?: number | null;
+    sets?: Array<{ lift: string; category?: string | null }>;
+  },
+) {
+  if (
+    !bodyWeightKg ||
+    durationMinutes == null ||
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
+    return null;
+  }
+  return caloriesBurnedSession(bodyWeightKg, durationMinutes, {
+    distanceKm: opts.distanceKm,
+    sessionName: opts.name,
+    cardio: sessionIsCardio(opts.name, opts.sets),
+  });
+}
+
+function parseDistance(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isFinite(n) || n < 0) return NaN;
+  if (n === 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/** Prefer explicit positive distance; never wipe an existing value with null. */
+function resolveDistanceKm(
+  bodyDistance: unknown,
+  existing: number | null | undefined,
+): number | null {
+  if (bodyDistance !== undefined && bodyDistance !== null && bodyDistance !== "") {
+    const parsed = parseDistance(bodyDistance);
+    if (Number.isNaN(parsed as number)) return NaN;
+    return parsed;
+  }
+  return existing != null && Number.isFinite(Number(existing))
+    ? Number(existing)
+    : null;
+}
 
 async function resolveBodyWeight(
   db: Awaited<ReturnType<typeof getDb>>,
@@ -90,6 +149,10 @@ function serializeSession(
     s.durationMinutes == null || s.durationMinutes === undefined
       ? null
       : Number(s.durationMinutes);
+  const distanceKm =
+    s.distanceKm == null || s.distanceKm === undefined
+      ? null
+      : Number(s.distanceKm);
   const hasDuration =
     durationMinutes != null &&
     Number.isFinite(durationMinutes) &&
@@ -107,6 +170,8 @@ function serializeSession(
     durationMinutes: Number.isFinite(durationMinutes as number)
       ? durationMinutes
       : null,
+    distanceKm:
+      distanceKm != null && Number.isFinite(distanceKm) ? distanceKm : null,
     caloriesBurned:
       s.caloriesBurned == null ? null : Number(s.caloriesBurned),
     createdAt: toMs(s.createdAt),
@@ -297,8 +362,7 @@ export async function GET(req: Request) {
     eee: {
       durationMinutes: totalDuration || null,
       caloriesBurned: totalEee || null,
-      met: 5.5,
-      note: "EEE is insight-only and is not subtracted from your calorie target.",
+      note: "EEE: gym MET 5.5; runs/cardio ~8+ (pace from distance+duration when set). Insight only — not subtracted from calorie target.",
     },
     funny: funnyVolumeLines(stats.volumeKg),
     recentGrouped,
@@ -353,39 +417,62 @@ export async function POST(req: Request) {
       authz.userId,
       session.date,
     );
-    const caloriesBurned = bodyWeightKg
-      ? caloriesBurnedResistance(bodyWeightKg, elapsedMin)
-      : null;
-
     const name = body.name
       ? String(body.name).trim() || session.name || "Workout"
       : session.name || "Workout";
+    const distanceKm = resolveDistanceKm(body.distanceKm, session.distanceKm);
+    if (Number.isNaN(distanceKm as number)) {
+      return jsonError("Invalid distance");
+    }
+    const caloriesBurned = eeeForSession(bodyWeightKg, elapsedMin, {
+      name,
+      distanceKm,
+      sets: session.sets,
+    });
 
     /** Raw SQL so endedAt always persists as integer ms. */
     await getClient().execute({
       sql: `UPDATE workout_sessions
-            SET endedAt = ?, durationMinutes = ?, caloriesBurned = ?, name = ?
+            SET endedAt = ?, durationMinutes = ?, distanceKm = ?, caloriesBurned = ?, name = ?
             WHERE id = ?`,
-      args: [nowMs, elapsedMin, caloriesBurned, name, sessionId],
+      args: [
+        nowMs,
+        elapsedMin,
+        distanceKm,
+        caloriesBurned,
+        name,
+        sessionId,
+      ],
     });
+
+    /** Cardio sets store planned distance at add-time; lock minutes from the timer now. */
+    for (const set of session.sets ?? []) {
+      if (getExercise(set.lift)?.type === "cardio") {
+        await db
+          .update(schema.liftSets)
+          .set({ reps: elapsedMin })
+          .where(eq(schema.liftSets.id, set.id));
+      }
+    }
 
     const updated = await db.query.workoutSessions.findFirst({
       where: eq(schema.workoutSessions.id, sessionId),
       with: { sets: true },
     });
 
+    const merged = {
+      ...(updated ?? session),
+      name,
+      endedAt: new Date(nowMs),
+      durationMinutes: elapsedMin,
+      distanceKm,
+      caloriesBurned,
+      sets: updated?.sets ?? session.sets,
+    };
+
     return jsonOk({
       ok: true,
-      session: serializeSession(
-        updated ?? {
-          ...session,
-          name,
-          endedAt: new Date(nowMs),
-          durationMinutes: elapsedMin,
-          caloriesBurned,
-        },
-        bodyWeightKg,
-      ),
+      session: serializeSession(merged, bodyWeightKg),
     });
   }
 
@@ -458,6 +545,7 @@ export async function POST(req: Request) {
 
   const exercise = getExercise(lift);
   const resolvedCategory = category ?? exercise?.group;
+  const isCardio = exercise?.type === "cardio";
 
   let session = sessionId
     ? await db.query.workoutSessions.findFirst({
@@ -487,9 +575,13 @@ export async function POST(req: Request) {
   let setNumber = sameLift.length;
   const created: typeof schema.liftSets.$inferSelect[] = [];
 
-  const toInsert = setsPayload
+  const toInsert = (setsPayload
     ? setsPayload
-    : Array.from({ length: setsCount }, () => ({ reps, weightKg }));
+    : Array.from({ length: setsCount }, () => ({ reps, weightKg }))
+  ).map((s) => ({
+    reps: s.reps,
+    weightKg: isCardio ? 0 : s.weightKg,
+  }));
 
   for (const s of toInsert) {
     setNumber += 1;
@@ -539,6 +631,7 @@ export async function PATCH(req: Request) {
       name?: string | null;
       notes?: string | null;
       durationMinutes?: number | null;
+      distanceKm?: number | null;
       caloriesBurned?: number | null;
       endedAt?: Date | null;
     } = {};
@@ -550,24 +643,74 @@ export async function PATCH(req: Request) {
     if (body.notes !== undefined) {
       updates.notes = body.notes ? String(body.notes) : null;
     }
+    if (body.distanceKm !== undefined) {
+      if (body.distanceKm === null || body.distanceKm === "") {
+        updates.distanceKm = null;
+      } else {
+        const distanceKm = parseDistance(body.distanceKm);
+        if (Number.isNaN(distanceKm)) {
+          return jsonError("Invalid distance");
+        }
+        updates.distanceKm = distanceKm;
+      }
+    }
     if (body.durationMinutes !== undefined) {
       const durationMinutes = parseDuration(body.durationMinutes);
       if (Number.isNaN(durationMinutes)) {
         return jsonError("Invalid duration");
       }
       updates.durationMinutes = durationMinutes;
-      updates.caloriesBurned =
-        durationMinutes != null && bodyWeightKg
-          ? caloriesBurnedResistance(bodyWeightKg, durationMinutes)
-          : null;
       /** Manual duration edit stops a still-running session. */
       if (toMs(session.endedAt) == null) {
         updates.endedAt = new Date();
+      }
+      if (
+        durationMinutes != null &&
+        Number.isFinite(durationMinutes) &&
+        durationMinutes > 0
+      ) {
+        for (const set of session.sets ?? []) {
+          if (getExercise(set.lift)?.type === "cardio") {
+            await db
+              .update(schema.liftSets)
+              .set({ reps: Math.round(durationMinutes) })
+              .where(eq(schema.liftSets.id, set.id));
+          }
+        }
       }
     }
 
     if (Object.keys(updates).length === 0) {
       return jsonError("Nothing to update");
+    }
+
+    const nextName =
+      updates.name !== undefined ? updates.name : session.name;
+    const nextDuration =
+      updates.durationMinutes !== undefined
+        ? updates.durationMinutes
+        : session.durationMinutes;
+    const nextDistance =
+      updates.distanceKm !== undefined
+        ? updates.distanceKm
+        : session.distanceKm != null
+          ? Number(session.distanceKm)
+          : null;
+
+    if (
+      body.durationMinutes !== undefined ||
+      body.distanceKm !== undefined ||
+      body.name !== undefined
+    ) {
+      updates.caloriesBurned = eeeForSession(
+        bodyWeightKg,
+        nextDuration != null ? Number(nextDuration) : null,
+        {
+          name: nextName,
+          distanceKm: nextDistance,
+          sets: session.sets,
+        },
+      );
     }
 
     const [updated] = await db
@@ -578,7 +721,7 @@ export async function PATCH(req: Request) {
 
     return jsonOk({
       session: serializeSession(
-        { ...updated, sets: session.sets },
+        { ...session, ...updated, sets: session.sets },
         bodyWeightKg,
       ),
     });
@@ -602,7 +745,9 @@ export async function PATCH(req: Request) {
     if (!Number.isFinite(reps) || reps <= 0) return jsonError("Invalid reps");
     updates.reps = reps;
   }
-  if (body.weightKg != null) {
+  if (getExercise(set.lift)?.type === "cardio") {
+    updates.weightKg = 0;
+  } else if (body.weightKg != null) {
     const weightKg = Number(body.weightKg);
     if (!Number.isFinite(weightKg) || weightKg < 0) {
       return jsonError("Invalid weight");
@@ -628,6 +773,21 @@ export async function PATCH(req: Request) {
     .returning();
 
   return jsonOk({ set: updated });
+}
+
+async function clearDistanceIfNoCardio(
+  db: Awaited<ReturnType<typeof getDb>>,
+  sessionId: string,
+) {
+  const sets = await db.query.liftSets.findMany({
+    where: eq(schema.liftSets.sessionId, sessionId),
+  });
+  const hasCardio = sets.some((s) => getExercise(s.lift)?.type === "cardio");
+  if (hasCardio) return;
+  await db
+    .update(schema.workoutSessions)
+    .set({ distanceKm: null, caloriesBurned: null })
+    .where(eq(schema.workoutSessions.id, sessionId));
 }
 
 export async function DELETE(req: Request) {
@@ -669,6 +829,7 @@ export async function DELETE(req: Request) {
           eq(schema.liftSets.lift, lift),
         ),
       );
+    await clearDistanceIfNoCardio(db, sessionId);
     return jsonOk({ ok: true, deleted: "exercise" });
   }
 
@@ -700,6 +861,8 @@ export async function DELETE(req: Request) {
         .where(eq(schema.liftSets.id, ordered[i].id));
     }
   }
+
+  await clearDistanceIfNoCardio(db, set.sessionId);
 
   return jsonOk({ ok: true, deleted: "set" });
 }

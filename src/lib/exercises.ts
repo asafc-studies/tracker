@@ -891,7 +891,7 @@ export const EXERCISES: ExerciseDef[] = [
     bodyRegions: ["legs", "cardio", "full_body"],
     muscles: ["quads", "hamstrings", "calves", "cardiovascular"],
     bodyweight: true,
-    tip: "Log distance in notes; reps = minutes",
+    tip: "Plan distance (km) + optional pace; minutes lock on Stop",
   },
   {
     id: "sprint_intervals",
@@ -912,6 +912,7 @@ export const EXERCISES: ExerciseDef[] = [
     bodyRegions: ["legs", "cardio"],
     muscles: ["quads", "hamstrings", "glutes", "cardiovascular"],
     bodyweight: true,
+    tip: "Plan distance (km) + optional pace; minutes lock on Stop",
   },
   {
     id: "hiking",
@@ -922,12 +923,12 @@ export const EXERCISES: ExerciseDef[] = [
     bodyRegions: ["legs", "cardio"],
     muscles: ["quads", "hamstrings", "calves", "cardiovascular"],
     bodyweight: true,
+    tip: "Plan distance (km) + optional pace; minutes lock on Stop",
   },
   {
     id: "rucking",
     name: "Rucking (weighted backpack)",
-    group: "outdoor",
-    equipment: "Backpack + load",
+    group: "outdoor",    equipment: "Backpack + load",
     type: "carry",
     bodyRegions: ["legs", "back", "core"],
     muscles: ["quads", "glutes", "lower_back", "abs"],
@@ -1140,6 +1141,7 @@ export function effectiveLoadKg(
   bodyWeightKg: number | null | undefined,
 ): number {
   const ex = getExercise(exerciseId);
+  if (ex?.type === "cardio") return 0;
   if (ex?.bodyweight) {
     return Math.max(0, (bodyWeightKg ?? 0) + weightKg);
   }
@@ -1148,10 +1150,15 @@ export function effectiveLoadKg(
 
 export function formatSetWeight(exerciseId: string, weightKg: number): string {
   const ex = getExercise(exerciseId);
+  if (ex?.type === "cardio") return "—";
   if (ex?.bodyweight) {
     return weightKg > 0 ? `BW + ${weightKg} kg` : "Bodyweight";
   }
   return `${weightKg} kg`;
+}
+
+export function isCardioExercise(exerciseId: string): boolean {
+  return getExercise(exerciseId)?.type === "cardio";
 }
 
 export function exerciseDisplayName(id: string): string {
@@ -1220,6 +1227,7 @@ export type GroupedExerciseSets<T extends { lift: string; setNumber: number }> =
     lift: string;
     name: string;
     bodyweight: boolean;
+    cardio: boolean;
     sets: T[];
   };
 
@@ -1244,6 +1252,7 @@ export function groupSetsByExercise<
       lift,
       name: exerciseDisplayName(lift),
       bodyweight: ex?.bodyweight ?? false,
+      cardio: ex?.type === "cardio",
       sets: groupSets,
     };
   });

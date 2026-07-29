@@ -155,6 +155,8 @@ const INCREMENTAL = [
   `ALTER TABLE workout_sessions ADD COLUMN caloriesBurned REAL`,
   `ALTER TABLE workout_sessions ADD COLUMN startedAt INTEGER`,
   `ALTER TABLE workout_sessions ADD COLUMN endedAt INTEGER`,
+  `ALTER TABLE profiles ADD COLUMN goalTarget TEXT`,
+  `ALTER TABLE workout_sessions ADD COLUMN distanceKm REAL`,
   `CREATE TABLE IF NOT EXISTS standing_menu_items (
     id TEXT PRIMARY KEY NOT NULL,
     userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

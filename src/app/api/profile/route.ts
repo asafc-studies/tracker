@@ -104,6 +104,14 @@ export async function PUT(req: Request) {
       calorieTargetOverride,
       proteinTargetOverride,
       countryCode: body.countryCode ?? existing.countryCode ?? "il",
+      ...(body.goalTarget !== undefined
+        ? {
+            goalTarget:
+              body.goalTarget === null || body.goalTarget === ""
+                ? null
+                : String(body.goalTarget).trim().slice(0, 500),
+          }
+        : {}),
       updatedAt: new Date(),
     };
 
@@ -164,6 +172,12 @@ export async function PUT(req: Request) {
     countryCode: body.countryCode ?? existing?.countryCode ?? "il",
     calorieTargetOverride: existing?.calorieTargetOverride ?? null,
     proteinTargetOverride: existing?.proteinTargetOverride ?? null,
+    goalTarget:
+      body.goalTarget !== undefined
+        ? body.goalTarget === null || body.goalTarget === ""
+          ? null
+          : String(body.goalTarget).trim().slice(0, 500)
+        : (existing?.goalTarget ?? null),
     updatedAt: new Date(),
   };
 

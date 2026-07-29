@@ -7,6 +7,7 @@ export type ExercisePanel =
   | "weight"
   | "muscles"
   | "log"
+  | "tips"
   | "history";
 
 export const EXERCISE_PANELS: Array<{
@@ -18,6 +19,7 @@ export const EXERCISE_PANELS: Array<{
   { id: "weight", label: "Body weight", short: "Weight" },
   { id: "muscles", label: "Muscles" },
   { id: "log", label: "Log" },
+  { id: "tips", label: "Tips" },
   { id: "history", label: "History" },
 ];
 
@@ -162,11 +164,48 @@ export function SetChip({
   weightKg,
   reps,
   bodyweight,
+  cardio = false,
+  distanceKm,
+  timePending = false,
 }: {
   weightKg: number;
   reps: number;
   bodyweight: boolean;
+  cardio?: boolean;
+  distanceKm?: number | null;
+  /** Cardio logged before Stop — time not locked yet. */
+  timePending?: boolean;
 }) {
+  if (cardio) {
+    const dist =
+      distanceKm != null && Number(distanceKm) > 0
+        ? `${distanceKm} km`
+        : null;
+    if (timePending) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-2)] px-2 py-1 text-sm">
+          {dist ? (
+            <DisplayNumber size="sm">{dist}</DisplayNumber>
+          ) : (
+            <span className="text-[var(--muted)] text-xs">cardio</span>
+          )}
+          <span className="text-[var(--muted)] text-xs">· time on stop</span>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface-2)] px-2 py-1 text-sm">
+        <DisplayNumber size="sm">{reps}</DisplayNumber>
+        <span className="text-[var(--muted)] text-xs">min</span>
+        {dist ? (
+          <>
+            <span className="text-[var(--muted)] text-xs">·</span>
+            <DisplayNumber size="sm">{dist}</DisplayNumber>
+          </>
+        ) : null}
+      </span>
+    );
+  }
   const weightLabel = bodyweight
     ? weightKg > 0
       ? `+${weightKg}`

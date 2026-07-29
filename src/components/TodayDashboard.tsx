@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
+import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { NutritionCoach } from "@/components/NutritionCoach";
 import { apiFetch } from "@/lib/api-fetch";
@@ -14,6 +15,7 @@ type ProfilePayload = {
   profile: {
     weightKg: number | null;
     bodyFatPercent?: number | null;
+    goalTarget?: string | null;
   } | null;
   targets: {
     calorieTarget: number;
@@ -35,6 +37,11 @@ type MacrosPayload = {
   };
 };
 
+type LiftsPayload = {
+  eee?: { caloriesBurned?: number | null };
+  stats?: { totalSets?: number; volumeKg?: number } | null;
+};
+
 export function TodayDashboard() {
   const today = todayISODate();
 
@@ -51,13 +58,26 @@ export function TodayDashboard() {
       ),
   });
 
-  const loading = profileQuery.isLoading || macrosQuery.isLoading;
+  const liftsQuery = useQuery({
+    queryKey: queryKeys.lifts(today),
+    queryFn: () =>
+      apiFetch<LiftsPayload>(
+        `/api/lifts?date=${encodeURIComponent(today)}`,
+      ),
+  });
+
+  const loading =
+    profileQuery.isLoading || macrosQuery.isLoading || liftsQuery.isLoading;
   const profile = profileQuery.data ?? null;
   const macros = macrosQuery.data ?? null;
+  const lifts = liftsQuery.data ?? null;
 
   const protein = macros?.totals.proteinG ?? 0;
   const calories = macros?.totals.calories ?? 0;
   const hasLogged = (macros?.totals.calories ?? 0) > 0;
+  const eeeToday = lifts?.eee?.caloriesBurned ?? 0;
+  const setsToday = lifts?.stats?.totalSets ?? 0;
+  const goalTarget = profile?.profile?.goalTarget?.trim() || null;
 
   return (
     <AppShell title="Today">
@@ -78,6 +98,26 @@ export function TodayDashboard() {
         </div>
       ) : (
         <div className="space-y-8">
+          {goalTarget ? (
+            <section className="space-y-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+                Your target
+              </p>
+              <p className="text-sm leading-relaxed">{goalTarget}</p>
+            </section>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">
+              Add an open-text Target on{" "}
+              <Link
+                href="/calculator"
+                className="text-[var(--accent)] hover:underline"
+              >
+                Profile
+              </Link>{" "}
+              so tips can tailor to fat loss, recomp, etc.
+            </p>
+          )}
+
           <section className="space-y-3">
             <div className="flex items-end justify-between gap-4">
               <div>
@@ -123,7 +163,34 @@ export function TodayDashboard() {
                   : "—"}
               </p>
             </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+                Workout EEE
+              </p>
+              <p className="text-xl font-medium mt-1">
+                {eeeToday > 0 ? Math.round(eeeToday) : "—"}
+                {eeeToday > 0 ? (
+                  <span className="text-sm text-[var(--muted)] font-normal">
+                    {" "}
+                    kcal
+                  </span>
+                ) : null}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+                Sets today
+              </p>
+              <p className="text-xl font-medium mt-1">{setsToday || "—"}</p>
+            </div>
           </section>
+
+          <AiCoachPanel
+            scope="today"
+            title="Today summary"
+            buttonLabel="Get AI summary"
+            placeholder='Optional: e.g. "focus on fat loss this week"'
+          />
 
           {hasLogged && macros ? (
             <>
@@ -174,12 +241,12 @@ export function TodayDashboard() {
                 </span>
               </Link>
               <Link
-                href="/exercises?panel=weight"
+                href="/exercises?panel=tips"
                 className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 text-sm hover:border-[var(--accent)] transition-colors"
               >
-                <span className="block font-medium">Update weight</span>
+                <span className="block font-medium">Workout tips</span>
                 <span className="text-xs text-[var(--muted)] mt-0.5 block">
-                  Body weight & history
+                  AI training advice
                 </span>
               </Link>
             </div>

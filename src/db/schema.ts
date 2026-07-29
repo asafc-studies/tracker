@@ -82,6 +82,8 @@ export const profiles = sqliteTable("profiles", {
   countryCode: text("countryCode").default("il"),
   calorieTargetOverride: integer("calorieTargetOverride"),
   proteinTargetOverride: integer("proteinTargetOverride"),
+  /** Free-text goal used by AI coaching (e.g. lose fat, recomp, gain muscle). */
+  goalTarget: text("goalTarget"),
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
@@ -285,8 +287,10 @@ export const workoutSessions = sqliteTable("workout_sessions", {
   startedAt: integer("startedAt", { mode: "timestamp_ms" }),
   /** When set, session is stopped; duration is derived (or manually overridden). */
   endedAt: integer("endedAt", { mode: "timestamp_ms" }),
-  /** Session length — from stop timer or manual edit; used for EEE (MET 5.5). */
+  /** Session length — from stop timer or manual edit; used for EEE. */
   durationMinutes: real("durationMinutes"),
+  /** Distance for cardio/run sessions (km); improves EEE MET via pace. */
+  distanceKm: real("distanceKm"),
   /** Cached EEE kcal when duration is set; insight only, not subtracted from targets. */
   caloriesBurned: real("caloriesBurned"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })

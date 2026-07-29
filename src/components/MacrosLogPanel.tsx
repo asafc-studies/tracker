@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
-import { NutritionCoach } from "@/components/NutritionCoach";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
@@ -374,26 +373,6 @@ export function MacrosLogPanel({ date }: Props) {
       </section>
 
       <MacroWarningsBanner warnings={warnings} />
-
-      {targets && totals.calories > 0 ? (
-        <NutritionCoach
-          compact
-          intake={totals}
-          targets={{
-            calorieTarget: targets.calorieTarget,
-            proteinG: targets.proteinG,
-            carbsG: targets.carbsG,
-            fatG: targets.fatG,
-            tdee: targets.tdee,
-            deficit: targets.deficit,
-            bodyFatPercent:
-              targets.bodyFatPercent ??
-              profileQuery.data?.profile?.bodyFatPercent ??
-              undefined,
-            weightKg: profileQuery.data?.profile?.weightKg,
-          }}
-        />
-      ) : null}
 
       <section>
         <h2 className="text-sm text-[var(--muted)] mb-3">Add food</h2>

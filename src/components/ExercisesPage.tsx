@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
+import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { BodyHeatmap } from "@/components/BodyHeatmap";
 import { MuscleMap } from "@/components/MuscleMap";
 import { WeightHistogram } from "@/components/charts/WeightHistogram";
@@ -36,6 +37,7 @@ type Grouped = {
   lift: string;
   name: string;
   bodyweight: boolean;
+  cardio?: boolean;
   sets: Array<{
     id: string;
     lift: string;
@@ -99,6 +101,7 @@ function normalizePanel(p: string | null): ExercisePanel {
     "weight",
     "muscles",
     "log",
+    "tips",
     "history",
   ];
   if (valid.includes(p as ExercisePanel)) return p as ExercisePanel;
@@ -731,6 +734,14 @@ export function ExercisesPage() {
             );
           }}
           onClearFocus={() => setFocusSessionId(null)}
+        />
+      ) : null}
+      {panel === "tips" ? (
+        <AiCoachPanel
+          scope="workout"
+          title="Workout tips"
+          buttonLabel="Get workout tips"
+          placeholder='Optional: e.g. "more pull volume" or "knee-friendly cardio"'
         />
       ) : null}
       {panel === "history" ? historyPanel : null}

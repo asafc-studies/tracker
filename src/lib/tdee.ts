@@ -163,10 +163,12 @@ export function resolveTargets(profile: ProfileForTargets) {
 
 /**
  * Compendium of Physical Activities — resistance training (MET ≈ 5.5).
- * CaloriesBurned = 5.5 × 3.5 × (WeightKg / 200) × DurationMinutes
+ * CaloriesBurned = MET × 3.5 × (WeightKg / 200) × DurationMinutes
  * Insight only — do not subtract from daily calorie target (TDEE covers baseline).
  */
 export const RESISTANCE_TRAINING_MET = 5.5;
+/** Default jogging / moderate run when no pace is known. */
+export const CARDIO_DEFAULT_MET = 8.0;
 
 export function caloriesBurnedResistance(
   weightKg: number,
@@ -182,4 +184,59 @@ export function caloriesBurnedResistance(
     return 0;
   }
   return Math.round(met * 3.5 * (weightKg / 200) * durationMinutes);
+}
+
+/** Rough Compendium METs from speed (km/h) for walking/running. */
+export function metFromSpeedKmh(kmh: number) {
+  if (!Number.isFinite(kmh) || kmh <= 0) return CARDIO_DEFAULT_MET;
+  if (kmh < 5) return 3.5;
+  if (kmh < 7) return 6.0;
+  if (kmh < 8.5) return 8.3;
+  if (kmh < 10) return 9.8;
+  if (kmh < 11.5) return 11.0;
+  if (kmh < 13.5) return 11.8;
+  return 14.5;
+}
+
+const CARDIO_NAME_RE =
+  /\b(run|running|jog|jogging|cycle|cycling|bike|hike|hiking|walk|walking|cardio|swim|swimming|ruck)\b/i;
+
+export function looksLikeCardioSession(name?: string | null) {
+  return CARDIO_NAME_RE.test(String(name || ""));
+}
+
+/**
+ * EEE for a session. Cardio/runs use higher METs; distance+duration
+ * refines MET from pace. Gym stays on resistance MET 5.5.
+ */
+export function caloriesBurnedSession(
+  weightKg: number,
+  durationMinutes: number,
+  opts?: {
+    distanceKm?: number | null;
+    sessionName?: string | null;
+    cardio?: boolean;
+  },
+) {
+  const distance =
+    opts?.distanceKm != null && Number.isFinite(opts.distanceKm)
+      ? Number(opts.distanceKm)
+      : null;
+  const cardio =
+    opts?.cardio === true || looksLikeCardioSession(opts?.sessionName);
+
+  let met = RESISTANCE_TRAINING_MET;
+  if (
+    cardio &&
+    distance != null &&
+    distance > 0 &&
+    durationMinutes > 0
+  ) {
+    const kmh = distance / (durationMinutes / 60);
+    met = metFromSpeedKmh(kmh);
+  } else if (cardio) {
+    met = CARDIO_DEFAULT_MET;
+  }
+
+  return caloriesBurnedResistance(weightKg, durationMinutes, met);
 }

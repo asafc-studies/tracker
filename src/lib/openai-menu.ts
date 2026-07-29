@@ -1,5 +1,6 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { aiChatJson, extractJsonObject } from "@/lib/ai-client";
 import { getMacroWarnings, sumMacros } from "@/lib/macros";
 import {
   getStandingMenu,
@@ -167,6 +168,7 @@ export async function buildMenuImproveContext(userId: string) {
       tdee: targets.tdee,
       deficit: targets.deficit,
     },
+    goalTarget: profile?.goalTarget?.trim() || null,
     todayWarnings: todayWarnings.map((w) => ({
       title: w.title,
       detail: w.detail,
@@ -185,190 +187,10 @@ export async function buildMenuImproveContext(userId: string) {
   };
 }
 
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
-
-type ProviderId = "github" | "gemini" | "openai";
-
-function env(...names: string[]) {
-  for (const name of names) {
-    const v = process.env[name]?.trim();
-    if (v) return v;
-  }
-  return "";
-}
-
-function resolveProvider(): {
-  id: ProviderId;
-  apiKey: string;
-  model: string;
-} {
-  const forced = env("AI_MENU_PROVIDER").toLowerCase() as ProviderId | "";
-
-  const githubKey = env("GITHUB_MODELS_TOKEN", "GITHUB_TOKEN");
-  const geminiKey = env("GEMINI_API_KEY");
-  const openaiKey = env("OPENAI_API_KEY", "OPENAI_KEY", "OPENAIKEY");
-
-  if (forced === "github" || (!forced && githubKey)) {
-    if (!githubKey) {
-      throw new Error(
-        "AI_MENU_PROVIDER=github but GITHUB_MODELS_TOKEN (or GITHUB_TOKEN) is missing.",
-      );
-    }
-    return {
-      id: "github",
-      apiKey: githubKey,
-      model: env("AI_MENU_MODEL", "GITHUB_MODELS_MODEL") || "openai/gpt-4o-mini",
-    };
-  }
-
-  if (forced === "gemini" || (!forced && geminiKey)) {
-    if (!geminiKey) {
-      throw new Error(
-        "AI_MENU_PROVIDER=gemini but GEMINI_API_KEY is missing.",
-      );
-    }
-    return {
-      id: "gemini",
-      apiKey: geminiKey,
-      model: env("AI_MENU_MODEL", "GEMINI_MENU_MODEL") || "gemini-2.0-flash",
-    };
-  }
-
-  if (forced === "openai" || openaiKey) {
-    if (!openaiKey) {
-      throw new Error(
-        "AI_MENU_PROVIDER=openai but OPENAI_API_KEY is missing.",
-      );
-    }
-    return {
-      id: "openai",
-      apiKey: openaiKey,
-      model: env("AI_MENU_MODEL", "OPENAI_MENU_MODEL") || "gpt-4o-mini",
-    };
-  }
-
-  throw new Error(
-    "No AI key found. Prefer free GitHub Models: create a PAT with models:read and set GITHUB_MODELS_TOKEN in .env.local (or use GEMINI_API_KEY). Restart the server after saving.",
-  );
-}
-
-function extractJsonObject(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{")) return trimmed;
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence?.[1]) return fence[1].trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  return trimmed;
-}
-
-async function chatCompletionsOpenAICompatible(opts: {
-  url: string;
-  apiKey: string;
-  model: string;
-  messages: ChatMessage[];
-  extraHeaders?: Record<string, string>;
-  providerLabel: string;
-  useJsonObjectFormat?: boolean;
-}) {
-  const body: Record<string, unknown> = {
-    model: opts.model,
-    temperature: 0.55,
-    messages: opts.messages,
-  };
-  if (opts.useJsonObjectFormat !== false) {
-    body.response_format = { type: "json_object" };
-  }
-
-  const res = await fetch(opts.url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-      ...opts.extraHeaders,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const data = (await res.json()) as {
-    error?: { message?: string; type?: string; code?: string };
-    message?: string;
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  if (!res.ok) {
-    const apiMsg =
-      data.error?.message || data.message || `${opts.providerLabel} error (${res.status})`;
-    if (res.status === 429 || data.error?.code === "insufficient_quota") {
-      throw new Error(
-        `${opts.providerLabel} quota/rate limit: ${apiMsg}`,
-      );
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        `${opts.providerLabel} auth failed (${res.status}). Check the token/key in .env.local and restart the server. ${apiMsg}`,
-      );
-    }
-    throw new Error(`${opts.providerLabel} ${res.status}: ${apiMsg}`);
-  }
-
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error(`Empty response from ${opts.providerLabel}`);
-  return content;
-}
-
-async function chatCompletionsGemini(opts: {
-  apiKey: string;
-  model: string;
-  system: string;
-  user: string;
-}) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: opts.system }] },
-      contents: [{ role: "user", parts: [{ text: opts.user }] }],
-      generationConfig: {
-        temperature: 0.55,
-        responseMimeType: "application/json",
-      },
-    }),
-  });
-
-  const data = (await res.json()) as {
-    error?: { message?: string; status?: string };
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
-    }>;
-  };
-
-  if (!res.ok) {
-    const apiMsg = data.error?.message || `Gemini error (${res.status})`;
-    if (res.status === 429) {
-      throw new Error(`Gemini quota/rate limit: ${apiMsg}`);
-    }
-    if (res.status === 400 || res.status === 403) {
-      throw new Error(`Gemini auth/config (${res.status}): ${apiMsg}`);
-    }
-    throw new Error(`Gemini ${res.status}: ${apiMsg}`);
-  }
-
-  const content = data.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text || "")
-    .join("")
-    .trim();
-  if (!content) throw new Error("Empty response from Gemini");
-  return content;
-}
-
 export async function improveMenuWithAI(
   userId: string,
   userRequest?: string,
 ): Promise<ImprovedMenuResult> {
-  const provider = resolveProvider();
   const context = await buildMenuImproveContext(userId);
 
   const planTotals = sumMacros(
@@ -390,6 +212,7 @@ export async function improveMenuWithAI(
   const system = `You are a body-recomposition meal planner.
 Primary goal: hit the user's daily macro TARGETS as closely as possible.
 Secondary goal: keep the menu recognizable — same meal pattern and mostly familiar foods.
+If goalTarget is set (e.g. lose fat / recomp / gain), bias food choices toward that without missing macros.
 
 PRIORITY ORDER (strict):
 1) Protein within ±10g of target (highest priority)
@@ -416,6 +239,7 @@ Return ONLY valid JSON (no markdown):
     ...(userRequest
       ? { userPriorityRequest: userRequest, note: "The userPriorityRequest is the MOST IMPORTANT instruction — follow it above all other rules." }
       : {}),
+    goalTarget: context.goalTarget,
     mustHitTargets: context.targets,
     currentPlanTotals: planTotals,
     gapsToClose: gaps,
@@ -428,44 +252,7 @@ Return ONLY valid JSON (no markdown):
       "Reject tiny edits. Protein and calories must clearly move toward targets.",
   });
 
-  let content: string;
-  if (provider.id === "github") {
-    content = await chatCompletionsOpenAICompatible({
-      url: "https://models.github.ai/inference/chat/completions",
-      apiKey: provider.apiKey,
-      model: provider.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      extraHeaders: {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      providerLabel: "GitHub Models",
-      // Some GitHub-hosted models reject response_format
-      useJsonObjectFormat: false,
-    });
-  } else if (provider.id === "gemini") {
-    content = await chatCompletionsGemini({
-      apiKey: provider.apiKey,
-      model: provider.model,
-      system,
-      user,
-    });
-  } else {
-    content = await chatCompletionsOpenAICompatible({
-      url: "https://api.openai.com/v1/chat/completions",
-      apiKey: provider.apiKey,
-      model: provider.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      providerLabel: "OpenAI",
-      useJsonObjectFormat: true,
-    });
-  }
+  const { content, model } = await aiChatJson({ system, user });
 
   let parsed: { rationale?: string; items?: unknown };
   try {
@@ -487,7 +274,7 @@ Return ONLY valid JSON (no markdown):
     rationale: String(
       parsed.rationale || "Improved menu for your recomp targets.",
     ),
-    model: `${provider.id}:${provider.model}`,
+    model,
   };
 }
 

@@ -13,6 +13,7 @@ import {
   type ExerciseGroup,
   formatSetWeight,
   getExercisesByGroup,
+  isCardioExercise,
   searchExercises,
 } from "@/lib/exercises";
 
@@ -28,6 +29,7 @@ type Grouped = {
   lift: string;
   name: string;
   bodyweight: boolean;
+  cardio?: boolean;
   sets: SetRow[];
 };
 
@@ -39,6 +41,7 @@ export type DaySession = {
   endedAt?: number | null;
   inProgress?: boolean;
   durationMinutes?: number | null;
+  distanceKm?: number | null;
   caloriesBurned?: number | null;
   groups: Grouped[];
   stats: DayLiftStats;
@@ -131,6 +134,37 @@ function formatDurationLabel(minutes: number | null | undefined): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+/** Pace as min/km from distance + duration. */
+function paceMinPerKm(
+  distanceKm: number,
+  minutes: number,
+): number | null {
+  if (
+    !Number.isFinite(distanceKm) ||
+    distanceKm <= 0 ||
+    !Number.isFinite(minutes) ||
+    minutes <= 0
+  ) {
+    return null;
+  }
+  return Math.round((minutes / distanceKm) * 10) / 10;
+}
+
+function formatPace(minPerKm: number): string {
+  const whole = Math.floor(minPerKm);
+  const sec = Math.round((minPerKm - whole) * 60);
+  return `${whole}:${String(sec).padStart(2, "0")} /km`;
+}
+
+function parseOptionalNumber(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return NaN;
+  if (n === 0) return null;
+  return n;
+}
+
 export function WorkoutLogPanel({
   date,
   sessions,
@@ -153,6 +187,8 @@ export function WorkoutLogPanel({
   const [sessionDraft, setSessionDraft] = useState({
     name: "Workout",
     durationMinutes: "",
+    distanceKm: "",
+    paceMinPerKm: "",
   });
   const [sessionMessage, setSessionMessage] = useState("");
   const [savingSession, setSavingSession] = useState(false);
@@ -161,6 +197,11 @@ export function WorkoutLogPanel({
   const [now, setNow] = useState(() => Date.now());
   const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null);
   const timerSessionIdRef = useRef<string | null>(null);
+  /** Always-current run stats so Stop never reads a stale empty draft. */
+  const runStatsRef = useRef({ distanceKm: "", paceMinPerKm: "" });
+  const distanceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const [group, setGroup] = useState<ExerciseGroup>("gym");
   const [search, setSearch] = useState("");
@@ -168,12 +209,21 @@ export function WorkoutLogPanel({
   const [reps, setReps] = useState(8);
   const [weightKg, setWeightKg] = useState(0);
   const [setsCount, setSetsCount] = useState(3);
+  /** Cardio log: distance km + optional pace (min/km). */
+  const [cardioDistanceKm, setCardioDistanceKm] = useState("");
+  const [cardioPace, setCardioPace] = useState("");
   const [draftSets, setDraftSets] = useState<DraftSet[] | null>(null);
   const [editingLog, setEditingLog] = useState(false);
   const [editingLifts, setEditingLifts] = useState<Set<string>>(new Set());
   const [editDrafts, setEditDrafts] = useState<
     Record<string, { reps: string; weightKg: string }>
   >({});
+  const [cardioEditDraft, setCardioEditDraft] = useState<{
+    sessionId: string;
+    minutes: string;
+    distanceKm: string;
+  } | null>(null);
+  const [savingCardioEdit, setSavingCardioEdit] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -285,18 +335,28 @@ export function WorkoutLogPanel({
     const last = lastByLift[exerciseId];
     const prior = lastSessionByLift[exerciseId];
     const ex = selectedExercise;
-    if (prior?.sets.length) {
+    const cardio = ex?.type === "cardio";
+    if (prior?.sets.length && !cardio) {
       setDraftSets(
-        prior.sets.map((s) => ({ reps: s.reps, weightKg: s.weightKg })),
+        prior.sets.map((s) => ({
+          reps: s.reps,
+          weightKg: s.weightKg,
+        })),
       );
       setReps(prior.sets[0].reps);
       setWeightKg(prior.sets[0].weightKg);
       setSetsCount(prior.sets.length);
-    } else if (last) {
+    } else if (last && !cardio) {
       setDraftSets(null);
       setReps(last.reps);
       setWeightKg(last.weightKg);
       setSetsCount(3);
+    } else if (cardio) {
+      setDraftSets(null);
+      setWeightKg(0);
+      setReps(1);
+      setSetsCount(1);
+      /** Keep distance fields; don't invent a fake duration. */
     } else if (ex?.bodyweight) {
       setDraftSets(null);
       setWeightKg(0);
@@ -307,47 +367,74 @@ export function WorkoutLogPanel({
     }
   }, [exerciseId, lastByLift, lastSessionByLift, selectedExercise]);
 
-  const isBodyweight = selectedExercise?.bodyweight ?? false;
-  const previewSets: DraftSet[] = draftSets
-    ? draftSets
-    : Array.from({ length: setsCount }, () => ({ reps, weightKg }));
-
-  const startSession = useCallback(
-    async (name: string) => {
-      setStarting(true);
-      setSessionMessage("");
-      const localStart = Date.now();
-      try {
-        const res = await fetch("/api/lifts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            startSession: true,
-            date,
-            name,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setSessionMessage(data.error || "Could not start session");
-          return;
-        }
-        const sessionId = data.session?.id as string | undefined;
-        const serverStart = coerceMs(data.session?.startedAt) ?? localStart;
-        if (sessionId) {
-          timerSessionIdRef.current = sessionId;
-          setTimerStartedAt(serverStart);
-          writeStoredTimer(sessionId, serverStart);
-          setSelectedId(sessionId);
-        }
-        await onChanged();
-      } finally {
-        setStarting(false);
+  /** Prefill cardio distance from the active session when available. */
+  useEffect(() => {
+    const s = running ?? selectedSession;
+    if (!s?.distanceKm || Number(s.distanceKm) <= 0) return;
+    const dist = String(s.distanceKm);
+    runStatsRef.current.distanceKm = dist;
+    setCardioDistanceKm(dist);
+    setSessionDraft((d) =>
+      d.distanceKm === dist ? d : { ...d, distanceKm: dist },
+    );
+    const mins =
+      s.durationMinutes != null && Number(s.durationMinutes) > 0
+        ? Number(s.durationMinutes)
+        : null;
+    if (mins) {
+      const p = paceMinPerKm(Number(s.distanceKm), mins);
+      if (p) {
+        const ps = String(p);
+        runStatsRef.current.paceMinPerKm = ps;
+        setCardioPace(ps);
       }
-    },
-    [date, onChanged],
-  );
+    }
+  }, [running?.id, running?.distanceKm, selectedSession?.id, selectedSession?.distanceKm]);
+
+  const isBodyweight = selectedExercise?.bodyweight ?? false;
+  const isCardio = selectedExercise?.type === "cardio";
+  const previewSets: DraftSet[] = isCardio
+    ? []
+    : draftSets
+      ? draftSets
+      : Array.from({ length: setsCount }, () => ({
+          reps,
+          weightKg: weightKg,
+        }));
+
+  const startSession = useCallback(async () => {
+    setStarting(true);
+    setSessionMessage("");
+    const localStart = Date.now();
+    try {
+      const res = await fetch("/api/lifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          startSession: true,
+          date,
+          name: "Workout",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSessionMessage(data.error || "Could not start session");
+        return;
+      }
+      const sessionId = data.session?.id as string | undefined;
+      const serverStart = coerceMs(data.session?.startedAt) ?? localStart;
+      if (sessionId) {
+        timerSessionIdRef.current = sessionId;
+        setTimerStartedAt(serverStart);
+        writeStoredTimer(sessionId, serverStart);
+        setSelectedId(sessionId);
+      }
+      await onChanged();
+    } finally {
+      setStarting(false);
+    }
+  }, [date, onChanged]);
 
   async function stopSession() {
     if (!running) return;
@@ -356,11 +443,21 @@ export function WorkoutLogPanel({
     const end = Date.now();
     const start = anchorMs ?? coerceMs(running.startedAt) ?? end;
     const durationMinutes = Math.max(1, Math.round((end - start) / 60000));
+    if (distanceSaveTimerRef.current) {
+      clearTimeout(distanceSaveTimerRef.current);
+      distanceSaveTimerRef.current = null;
+    }
+    /** Keep any distance already logged via a cardio exercise. */
+    const distanceKm = readRunDistanceKm();
     const stoppedSnapshot: DaySession = {
       ...running,
       inProgress: false,
       endedAt: end,
       durationMinutes,
+      distanceKm:
+        distanceKm != null && !Number.isNaN(distanceKm)
+          ? distanceKm
+          : running.distanceKm ?? null,
     };
     try {
       const res = await fetch("/api/lifts", {
@@ -372,6 +469,9 @@ export function WorkoutLogPanel({
           sessionId: running.id,
           startedAt: start,
           durationMinutes,
+          ...(distanceKm != null && !Number.isNaN(distanceKm)
+            ? { distanceKm }
+            : {}),
           name: running.name,
         }),
       });
@@ -385,16 +485,29 @@ export function WorkoutLogPanel({
       timerSessionIdRef.current = null;
       const saved = data.session as DaySession | undefined;
       const mins = saved?.durationMinutes ?? durationMinutes;
-      /** Clear running UI immediately — don't wait on reload. */
+      const dist =
+        saved?.distanceKm != null && Number(saved.distanceKm) > 0
+          ? Number(saved.distanceKm)
+          : stoppedSnapshot.distanceKm;
       onStopped?.(
         saved
-          ? { ...saved, inProgress: false, durationMinutes: mins }
+          ? {
+              ...saved,
+              inProgress: false,
+              durationMinutes: mins,
+              distanceKm: dist ?? saved.distanceKm,
+            }
           : stoppedSnapshot,
       );
       setSelectedId(running.id);
-      setSessionMessage(
-        `Stopped · ${formatDurationLabel(mins)}. You can still add sets below.`,
-      );
+      const bits = [
+        formatDurationLabel(mins),
+        dist != null && Number(dist) > 0 ? `${dist} km` : null,
+        saved?.caloriesBurned
+          ? `${Math.round(saved.caloriesBurned)} kcal EEE`
+          : null,
+      ].filter(Boolean);
+      setSessionMessage(`Stopped · ${bits.join(" · ")}`);
       await onChanged();
     } catch (err) {
       setSessionMessage(
@@ -411,15 +524,24 @@ export function WorkoutLogPanel({
       s.inProgress && anchorMs != null
         ? Math.max(1, Math.round((Date.now() - anchorMs) / 60000))
         : null;
+    const duration =
+      s.durationMinutes != null && Number(s.durationMinutes) > 0
+        ? Number(s.durationMinutes)
+        : liveMins;
+    const dist =
+      s.distanceKm != null && Number(s.distanceKm) > 0
+        ? Number(s.distanceKm)
+        : null;
+    const pace =
+      dist != null && duration != null ? paceMinPerKm(dist, duration) : null;
     setSessionDraft({
       name: s.name || "Workout",
-      durationMinutes:
-        s.durationMinutes != null && Number(s.durationMinutes) > 0
-          ? String(s.durationMinutes)
-          : liveMins != null
-            ? String(liveMins)
-            : "",
+      durationMinutes: duration != null ? String(duration) : "",
+      distanceKm: dist != null ? String(dist) : runStatsRef.current.distanceKm || cardioDistanceKm,
+      paceMinPerKm: pace != null ? String(pace) : runStatsRef.current.paceMinPerKm || cardioPace,
     });
+    if (dist != null) runStatsRef.current.distanceKm = String(dist);
+    if (pace != null) runStatsRef.current.paceMinPerKm = String(pace);
     setSessionMessage("");
   }
 
@@ -433,6 +555,12 @@ export function WorkoutLogPanel({
       setSavingSession(false);
       return;
     }
+    const distanceKm = readRunDistanceKm();
+    if (Number.isNaN(distanceKm as number)) {
+      setSessionMessage("Enter a valid distance in km");
+      setSavingSession(false);
+      return;
+    }
     try {
       const res = await fetch("/api/lifts", {
         method: "PATCH",
@@ -443,6 +571,7 @@ export function WorkoutLogPanel({
           updateSession: true,
           name: sessionDraft.name.trim() || "Workout",
           durationMinutes,
+          ...(distanceKm != null ? { distanceKm } : {}),
         }),
       });
       const data = await res.json();
@@ -456,15 +585,73 @@ export function WorkoutLogPanel({
         timerSessionIdRef.current = null;
       }
       setEditingSessionId(null);
+      if (distanceKm != null) updateRunDistance(String(distanceKm));
       const saved = data.session?.durationMinutes;
-      setSessionMessage(
+      const dist = data.session?.distanceKm;
+      const burn = data.session?.caloriesBurned;
+      const bits = [
         saved != null && Number(saved) > 0
-          ? `Saved · ${formatDurationLabel(saved)}`
-          : "Session updated",
+          ? formatDurationLabel(saved)
+          : null,
+        dist != null && Number(dist) > 0 ? `${dist} km` : null,
+        burn != null && Number(burn) > 0
+          ? `${Math.round(burn)} kcal EEE`
+          : null,
+      ].filter(Boolean);
+      setSessionMessage(
+        bits.length ? `Saved · ${bits.join(" · ")}` : "Session updated",
       );
       await onChanged();
     } finally {
       setSavingSession(false);
+    }
+  }
+
+  function updateRunDistance(v: string) {
+    runStatsRef.current.distanceKm = v;
+    setCardioDistanceKm(v);
+    setSessionDraft((d) => ({ ...d, distanceKm: v }));
+  }
+
+  function updateRunPace(v: string) {
+    runStatsRef.current.paceMinPerKm = v;
+    setCardioPace(v);
+    setSessionDraft((d) => ({ ...d, paceMinPerKm: v }));
+  }
+
+  function readRunDistanceKm(): number | null {
+    return parseOptionalNumber(
+      runStatsRef.current.distanceKm ||
+        sessionDraft.distanceKm ||
+        cardioDistanceKm,
+    );
+  }
+
+  function schedulePersistDistance(sessionId: string) {
+    if (distanceSaveTimerRef.current) {
+      clearTimeout(distanceSaveTimerRef.current);
+    }
+    distanceSaveTimerRef.current = setTimeout(() => {
+      void persistDistanceNow(sessionId);
+    }, 350);
+  }
+
+  async function persistDistanceNow(sessionId: string) {
+    const distanceKm = parseOptionalNumber(runStatsRef.current.distanceKm);
+    if (distanceKm == null || Number.isNaN(distanceKm)) return;
+    try {
+      await fetch("/api/lifts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          sessionId,
+          updateSession: true,
+          distanceKm,
+        }),
+      });
+    } catch {
+      /* best-effort; Stop will also send distance */
     }
   }
 
@@ -495,8 +682,34 @@ export function WorkoutLogPanel({
       );
       return;
     }
+    const cardio = isCardio || isCardioExercise(exerciseId);
+    let distanceKm: number | null = null;
+    if (cardio) {
+      if (!target.inProgress && !(target.durationMinutes != null && Number(target.durationMinutes) > 0)) {
+        setSessionMessage("Start a session (or open one with a duration) first");
+        return;
+      }
+      let distanceKmRaw = readRunDistanceKm();
+      if (Number.isNaN(distanceKmRaw as number)) {
+        setSessionMessage("Enter a valid distance in km");
+        return;
+      }
+      const pace = parseOptionalNumber(
+        runStatsRef.current.paceMinPerKm || cardioPace,
+      );
+      if (Number.isNaN(pace as number)) {
+        setSessionMessage("Enter a valid pace (min/km)");
+        return;
+      }
+      /** Optional: pace alone can wait until Stop for distance fill — require km now. */
+      if (distanceKmRaw == null) {
+        setSessionMessage("Add the planned distance (km) for this run");
+        return;
+      }
+      distanceKm = distanceKmRaw;
+    }
     const payload =
-      draftSets && draftSets.length > 0
+      draftSets && draftSets.length > 0 && !cardio
         ? {
             sessionId: target.id,
             lift: exerciseId,
@@ -509,9 +722,16 @@ export function WorkoutLogPanel({
             lift: exerciseId,
             category: group,
             date: target.date,
-            reps,
-            weightKg,
-            setsCount,
+            /** Cardio: placeholder until Stop; if session already finished, use its duration. */
+            reps: cardio
+              ? !target.inProgress &&
+                target.durationMinutes != null &&
+                Number(target.durationMinutes) > 0
+                ? Math.max(1, Math.round(Number(target.durationMinutes)))
+                : 1
+              : reps,
+            weightKg: cardio ? 0 : weightKg,
+            setsCount: cardio ? 1 : setsCount,
           };
     const res = await fetch("/api/lifts", {
       method: "POST",
@@ -524,17 +744,163 @@ export function WorkoutLogPanel({
       setSessionMessage(data.error || "Could not log sets");
       return;
     }
+    if (cardio && distanceKm != null) {
+      await fetch("/api/lifts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          sessionId: target.id,
+          updateSession: true,
+          distanceKm,
+        }),
+      });
+      updateRunDistance(String(distanceKm));
+    }
     setEditingLog(false);
     setSelectedId(target.id);
     const count =
-      draftSets && draftSets.length > 0 ? draftSets.length : setsCount;
+      draftSets && draftSets.length > 0 && !cardio
+        ? draftSets.length
+        : cardio
+          ? 1
+          : setsCount;
     setSessionMessage(
-      `Added ${count} set${count === 1 ? "" : "s"} to “${target.name}”`,
+      cardio
+        ? [
+            `Planned ${exerciseId === "running" ? "run" : "cardio"}`,
+            `${distanceKm} km`,
+            cardioPace.trim()
+              ? formatPace(Number(cardioPace))
+              : null,
+            target.inProgress ? "time locks on Stop" : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : `Added ${count} set${count === 1 ? "" : "s"} to “${target.name}”`,
     );
     await onChanged();
   }
 
-  async function saveSet(id: string) {
+  async function saveCardioEdit(sessionId: string) {
+    if (!cardioEditDraft || cardioEditDraft.sessionId !== sessionId) return;
+    const minutesRaw = cardioEditDraft.minutes.trim();
+    const distanceRaw = cardioEditDraft.distanceKm.trim();
+    const minutes = minutesRaw === "" ? null : Number(minutesRaw);
+    const distanceKm =
+      distanceRaw === "" ? null : Number(distanceRaw);
+    if (
+      minutesRaw !== "" &&
+      (!Number.isFinite(minutes) || minutes! < 0)
+    ) {
+      setSessionMessage("Enter a valid time in minutes");
+      return;
+    }
+    if (
+      distanceRaw !== "" &&
+      (!Number.isFinite(distanceKm) || distanceKm! < 0)
+    ) {
+      setSessionMessage("Enter a valid distance in km");
+      return;
+    }
+    if (minutes == null && distanceKm == null) {
+      setSessionMessage("Enter minutes and/or distance");
+      return;
+    }
+    setSavingCardioEdit(true);
+    setSessionMessage("");
+    try {
+      const res = await fetch("/api/lifts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          sessionId,
+          updateSession: true,
+          ...(minutes != null ? { durationMinutes: minutes } : {}),
+          ...(distanceKm != null
+            ? { distanceKm }
+            : distanceRaw === ""
+              ? { distanceKm: null }
+              : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSessionMessage(data.error || "Could not save run");
+        return;
+      }
+      if (distanceKm != null) updateRunDistance(String(distanceKm));
+      if (minutes != null && distanceKm != null) {
+        const p = paceMinPerKm(distanceKm, minutes);
+        if (p != null) updateRunPace(String(p));
+      }
+      const saved = data.session as DaySession | undefined;
+      const bits = [
+        saved?.durationMinutes != null
+          ? formatDurationLabel(saved.durationMinutes)
+          : minutes != null
+            ? formatDurationLabel(minutes)
+            : null,
+        saved?.distanceKm != null && Number(saved.distanceKm) > 0
+          ? `${saved.distanceKm} km`
+          : distanceKm != null
+            ? `${distanceKm} km`
+            : null,
+        (() => {
+          const d = saved?.distanceKm ?? distanceKm;
+          const m = saved?.durationMinutes ?? minutes;
+          if (d == null || m == null || Number(d) <= 0 || Number(m) <= 0) {
+            return null;
+          }
+          const p = paceMinPerKm(Number(d), Number(m));
+          return p != null ? formatPace(p) : null;
+        })(),
+        saved?.caloriesBurned
+          ? `${Math.round(saved.caloriesBurned)} kcal EEE`
+          : null,
+      ].filter(Boolean);
+      setSessionMessage(
+        bits.length ? `Run updated · ${bits.join(" · ")}` : "Run updated",
+      );
+      setCardioEditDraft(null);
+      setEditingLifts((prev) => {
+        const next = new Set(prev);
+        for (const k of next) {
+          if (k.startsWith(`${sessionId}:`)) next.delete(k);
+        }
+        return next;
+      });
+      if (running?.id === sessionId && minutes != null) {
+        clearStoredTimer();
+        setTimerStartedAt(null);
+        timerSessionIdRef.current = null;
+      }
+      await onChanged();
+    } finally {
+      setSavingCardioEdit(false);
+    }
+  }
+
+  function openCardioEdit(s: DaySession) {
+    const mins =
+      s.durationMinutes != null && Number(s.durationMinutes) > 0
+        ? String(Math.round(Number(s.durationMinutes)))
+        : s.inProgress && anchorMs != null
+          ? String(Math.max(1, Math.round((Date.now() - anchorMs) / 60000)))
+          : "";
+    const dist =
+      s.distanceKm != null && Number(s.distanceKm) > 0
+        ? String(s.distanceKm)
+        : cardioDistanceKm || sessionDraft.distanceKm || "";
+    setCardioEditDraft({
+      sessionId: s.id,
+      minutes: mins,
+      distanceKm: dist,
+    });
+  }
+
+  async function saveSet(id: string, cardio = false) {
     const d = editDrafts[id];
     if (!d) return;
     setSavingId(id);
@@ -545,7 +911,7 @@ export function WorkoutLogPanel({
         body: JSON.stringify({
           id,
           reps: Number(d.reps),
-          weightKg: Number(d.weightKg),
+          weightKg: cardio ? 0 : Number(d.weightKg),
         }),
       });
       await onChanged();
@@ -566,6 +932,16 @@ export function WorkoutLogPanel({
       `/api/lifts?sessionId=${encodeURIComponent(sessionId)}&lift=${encodeURIComponent(lift)}`,
       { method: "DELETE" },
     );
+    if (isCardioExercise(lift)) {
+      runStatsRef.current = { distanceKm: "", paceMinPerKm: "" };
+      setCardioDistanceKm("");
+      setCardioPace("");
+      setSessionDraft((d) => ({
+        ...d,
+        distanceKm: "",
+        paceMinPerKm: "",
+      }));
+    }
     await onChanged();
   }
 
@@ -576,6 +952,7 @@ export function WorkoutLogPanel({
     existing?: Grouped,
     sessionDate?: string,
   ) {
+    const cardio = existing?.cardio ?? isCardioExercise(lift);
     const last = existing?.sets[existing.sets.length - 1];
     await fetch("/api/lifts", {
       method: "POST",
@@ -584,8 +961,8 @@ export function WorkoutLogPanel({
         sessionId,
         lift,
         date: sessionDate ?? date,
-        reps: last?.reps ?? 8,
-        weightKg: last?.weightKg ?? (bodyweight ? 0 : 20),
+        reps: last?.reps ?? (cardio ? 30 : 8),
+        weightKg: cardio ? 0 : (last?.weightKg ?? (bodyweight ? 0 : 20)),
         setsCount: 1,
       }),
     });
@@ -617,6 +994,7 @@ export function WorkoutLogPanel({
     return s.groups.map((g) => {
       const key = `${s.id}:${g.lift}`;
       const editing = editingLifts.has(key);
+      const cardio = g.cardio ?? isCardioExercise(g.lift);
       return (
         <div
           key={g.lift}
@@ -626,39 +1004,64 @@ export function WorkoutLogPanel({
             <div className="min-w-0">
               <p className="text-sm font-medium">{g.name}</p>
               <div className="flex flex-wrap gap-1.5 mt-1">
-                {g.sets.map((set) => (
+                {cardio ? (
                   <SetChip
-                    key={set.id}
-                    weightKg={set.weightKg}
-                    reps={set.reps}
-                    bodyweight={g.bodyweight}
+                    weightKg={0}
+                    reps={
+                      s.inProgress
+                        ? 1
+                        : s.durationMinutes != null &&
+                            Number(s.durationMinutes) > 0
+                          ? Math.round(Number(s.durationMinutes))
+                          : g.sets[0]?.reps ?? 1
+                    }
+                    bodyweight
+                    cardio
+                    distanceKm={s.distanceKm}
+                    timePending={Boolean(s.inProgress)}
                   />
-                ))}
+                ) : (
+                  g.sets.map((set) => (
+                    <SetChip
+                      key={set.id}
+                      weightKg={set.weightKg}
+                      reps={set.reps}
+                      bodyweight={g.bodyweight}
+                    />
+                  ))
+                )}
               </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() =>
-                  void addSetToExercise(
-                    s.id,
-                    g.lift,
-                    g.bodyweight,
-                    g,
-                    s.date,
-                  )
-                }
-                className="text-xs px-2.5 py-2 rounded-md border border-[var(--border)] min-h-[44px]"
-              >
-                + Set
-              </button>
+              {cardio ? null : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void addSetToExercise(
+                      s.id,
+                      g.lift,
+                      g.bodyweight,
+                      g,
+                      s.date,
+                    )
+                  }
+                  className="text-xs px-2.5 py-2 rounded-md border border-[var(--border)] min-h-[44px]"
+                >
+                  + Set
+                </button>
+              )}
               <EditToggle
                 editing={editing}
                 onClick={() =>
                   setEditingLifts((prev) => {
                     const next = new Set(prev);
-                    if (next.has(key)) next.delete(key);
-                    else next.add(key);
+                    if (next.has(key)) {
+                      next.delete(key);
+                      if (cardio) setCardioEditDraft(null);
+                    } else {
+                      next.add(key);
+                      if (cardio) openCardioEdit(s);
+                    }
                     return next;
                   })
                 }
@@ -674,90 +1077,291 @@ export function WorkoutLogPanel({
           </div>
           {editing ? (
             <ul className="divide-y divide-[var(--border)] px-3 py-2 space-y-0">
-              {g.sets.map((set) => {
-                const d = editDrafts[set.id] ?? {
-                  reps: String(set.reps),
-                  weightKg: String(set.weightKg),
-                };
-                const dirty =
-                  Number(d.reps) !== set.reps ||
-                  Number(d.weightKg) !== set.weightKg;
-                return (
-                  <li
-                    key={set.id}
-                    className="py-3 flex flex-col gap-2 sm:flex-row sm:items-end"
-                  >
-                    <span className="text-xs text-[var(--muted)] w-14">
-                      Set {set.setNumber}
-                    </span>
-                    <label className="space-y-1 block flex-1">
+              {cardio ? (
+                <li className="py-3 space-y-3">
+                  <p className="text-xs text-[var(--muted)]">
+                    Edit time and distance. Pace is calculated from both.
+                    {s.inProgress
+                      ? " Saving minutes will end the live timer."
+                      : ""}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 block">
                       <span className="text-[10px] text-[var(--muted)]">
-                        {g.bodyweight ? "Added kg" : "kg"}
+                        Time (minutes)
                       </span>
                       <input
                         className={field}
                         type="number"
-                        step="0.5"
                         min={0}
-                        value={d.weightKg}
+                        step={1}
+                        inputMode="numeric"
+                        placeholder="e.g. 32"
+                        value={
+                          cardioEditDraft?.sessionId === s.id
+                            ? cardioEditDraft.minutes
+                            : ""
+                        }
                         onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [set.id]: {
-                              ...d,
-                              weightKg: e.target.value,
-                            },
+                          setCardioEditDraft((d) => ({
+                            sessionId: s.id,
+                            minutes: e.target.value,
+                            distanceKm: d?.sessionId === s.id ? d.distanceKm : "",
                           }))
                         }
                       />
                     </label>
-                    <label className="space-y-1 block flex-1">
+                    <label className="space-y-1 block">
                       <span className="text-[10px] text-[var(--muted)]">
-                        Reps
+                        Distance (km)
                       </span>
                       <input
                         className={field}
                         type="number"
-                        min={1}
-                        value={d.reps}
+                        min={0}
+                        step={0.1}
+                        inputMode="decimal"
+                        placeholder="e.g. 5.2"
+                        value={
+                          cardioEditDraft?.sessionId === s.id
+                            ? cardioEditDraft.distanceKm
+                            : ""
+                        }
                         onChange={(e) =>
-                          setEditDrafts((prev) => ({
-                            ...prev,
-                            [set.id]: {
-                              ...d,
-                              reps: e.target.value,
-                            },
+                          setCardioEditDraft((d) => ({
+                            sessionId: s.id,
+                            minutes: d?.sessionId === s.id ? d.minutes : "",
+                            distanceKm: e.target.value,
                           }))
                         }
                       />
                     </label>
-                    <div className="flex gap-2">
-                      {dirty ? (
+                  </div>
+                  {(() => {
+                    const m =
+                      cardioEditDraft?.sessionId === s.id
+                        ? Number(cardioEditDraft.minutes)
+                        : NaN;
+                    const d =
+                      cardioEditDraft?.sessionId === s.id
+                        ? Number(cardioEditDraft.distanceKm)
+                        : NaN;
+                    const p =
+                      Number.isFinite(m) &&
+                      m > 0 &&
+                      Number.isFinite(d) &&
+                      d > 0
+                        ? paceMinPerKm(d, m)
+                        : null;
+                    return p != null ? (
+                      <p className="text-xs text-[var(--accent)]">
+                        Pace ≈ {formatPace(p)}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-[var(--muted)]">
+                        Enter time + distance to see pace.
+                      </p>
+                    );
+                  })()}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={savingCardioEdit}
+                      onClick={() => void saveCardioEdit(s.id)}
+                      className="rounded-md bg-[var(--accent)] text-[var(--background)] px-3 py-2.5 text-xs font-medium min-h-[44px] disabled:opacity-50"
+                    >
+                      {savingCardioEdit ? "Saving…" : "Save run"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void removeExercise(s.id, g.lift)}
+                      className="text-xs border border-[var(--border)] rounded-md px-3 min-h-[44px] text-[var(--muted)]"
+                    >
+                      Remove run
+                    </button>
+                  </div>
+                </li>
+              ) : (
+                g.sets.map((set) => {
+                  const d = editDrafts[set.id] ?? {
+                    reps: String(set.reps),
+                    weightKg: String(set.weightKg),
+                  };
+                  const dirty =
+                    Number(d.reps) !== set.reps ||
+                    Number(d.weightKg) !== set.weightKg;
+                  return (
+                    <li
+                      key={set.id}
+                      className="py-3 flex flex-col gap-2 sm:flex-row sm:items-end"
+                    >
+                      <span className="text-xs text-[var(--muted)] w-14">
+                        Set {set.setNumber}
+                      </span>
+                      <label className="space-y-1 block flex-1">
+                        <span className="text-[10px] text-[var(--muted)]">
+                          {g.bodyweight ? "Added kg" : "kg"}
+                        </span>
+                        <input
+                          className={field}
+                          type="number"
+                          step="0.5"
+                          min={0}
+                          value={d.weightKg}
+                          onChange={(e) =>
+                            setEditDrafts((prev) => ({
+                              ...prev,
+                              [set.id]: {
+                                ...d,
+                                weightKg: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1 block flex-1">
+                        <span className="text-[10px] text-[var(--muted)]">
+                          Reps
+                        </span>
+                        <input
+                          className={field}
+                          type="number"
+                          min={1}
+                          value={d.reps}
+                          onChange={(e) =>
+                            setEditDrafts((prev) => ({
+                              ...prev,
+                              [set.id]: {
+                                ...d,
+                                reps: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        {dirty ? (
+                          <button
+                            type="button"
+                            disabled={savingId === set.id}
+                            onClick={() => void saveSet(set.id, false)}
+                            className="text-xs text-[var(--accent)] font-medium min-h-[44px] px-3"
+                          >
+                            {savingId === set.id ? "…" : "Save"}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          disabled={savingId === set.id}
-                          onClick={() => void saveSet(set.id)}
-                          className="text-xs text-[var(--accent)] font-medium min-h-[44px] px-3"
+                          onClick={() => void removeSet(set.id)}
+                          className="text-xs border border-[var(--border)] rounded-md px-3 min-h-[44px] text-[var(--muted)]"
                         >
-                          {savingId === set.id ? "…" : "Save"}
+                          Remove set
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void removeSet(set.id)}
-                        className="text-xs border border-[var(--border)] rounded-md px-3 min-h-[44px] text-[var(--muted)]"
-                      >
-                        Remove set
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
+                      </div>
+                    </li>
+                  );
+                })
+              )}
             </ul>
           ) : null}
         </div>
       );
     });
+  }
+
+  function renderDistancePaceFields(opts: {
+    distanceValue: string;
+    paceValue: string;
+    minutesHint?: number | null;
+    onDistance: (v: string) => void;
+    onPace: (v: string) => void;
+    compact?: boolean;
+  }) {
+    const mins = opts.minutesHint;
+    const distN = parseOptionalNumber(opts.distanceValue);
+    const computed =
+      distN != null &&
+      !Number.isNaN(distN) &&
+      mins != null &&
+      mins > 0
+        ? paceMinPerKm(distN, mins)
+        : null;
+
+    return (
+      <div
+        className={
+          opts.compact
+            ? "grid grid-cols-2 gap-2 w-full max-w-sm"
+            : "grid grid-cols-2 gap-3"
+        }
+      >
+        <label className="space-y-1 block">
+          <span className="text-xs text-[var(--muted)]">Distance (km)</span>
+          <input
+            className={field}
+            type="number"
+            min={0}
+            step={0.1}
+            inputMode="decimal"
+            placeholder="e.g. 5.2"
+            value={opts.distanceValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              opts.onDistance(v);
+              const d = parseOptionalNumber(v);
+              if (
+                d != null &&
+                !Number.isNaN(d) &&
+                mins != null &&
+                mins > 0
+              ) {
+                const p = paceMinPerKm(d, mins);
+                if (p != null) opts.onPace(String(p));
+              }
+            }}
+          />
+        </label>
+        <label className="space-y-1 block">
+          <span className="text-xs text-[var(--muted)]">
+            Pace min/km{" "}
+            <span className="opacity-70">(optional)</span>
+          </span>
+          <input
+            className={field}
+            type="number"
+            min={0}
+            step={0.1}
+            inputMode="decimal"
+            placeholder="e.g. 5.5"
+            value={opts.paceValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              opts.onPace(v);
+              const p = parseOptionalNumber(v);
+              if (
+                p != null &&
+                !Number.isNaN(p) &&
+                mins != null &&
+                mins > 0 &&
+                !opts.distanceValue.trim()
+              ) {
+                opts.onDistance(String(Math.round((mins / p) * 100) / 100));
+              }
+            }}
+          />
+        </label>
+        {computed != null ? (
+          <p className="col-span-2 text-[11px] text-[var(--muted)]">
+            Target rhythm ≈ {formatPace(computed)}
+            {mins != null ? ` at ${mins} min` : ""}
+          </p>
+        ) : (
+          <p className="col-span-2 text-[11px] text-[var(--muted)]">
+            Pace optional. Session timer sets the real duration on Stop.
+          </p>
+        )}
+      </div>
+    );
   }
 
   function renderSessionEditForm(s: DaySession) {
@@ -774,7 +1378,7 @@ export function WorkoutLogPanel({
                 name: e.target.value,
               }))
             }
-            placeholder="Gym / Run / Home"
+            placeholder="Workout"
           />
         </label>
         <label className="space-y-1 block">
@@ -798,8 +1402,8 @@ export function WorkoutLogPanel({
           />
         </label>
         <p className="text-xs text-[var(--muted)]">
-          Duration estimates EEE (MET 5.5). Insight only — not subtracted from
-          calorie target.
+          Duration drives EEE. For runs, add distance on the Running exercise.
+          Insight only — not subtracted from calorie target.
         </p>
         <button
           type="button"
@@ -873,6 +1477,7 @@ export function WorkoutLogPanel({
               {selectedExercise ? (
                 <p className="text-xs text-[var(--muted)]">
                   {selectedExercise.equipment} · {selectedExercise.type}
+                  {selectedExercise.tip ? ` · ${selectedExercise.tip}` : ""}
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-1.5">
@@ -882,10 +1487,21 @@ export function WorkoutLogPanel({
                     weightKg={s.weightKg}
                     reps={s.reps}
                     bodyweight={isBodyweight}
+                    cardio={isCardio}
                   />
                 ))}
               </div>
-              {lastSession ? (
+              {isCardio ? (
+                <p className="text-xs text-[var(--muted)]">
+                  {cardioDistanceKm.trim()
+                    ? `Plan: ${cardioDistanceKm.trim()} km`
+                    : "Add planned distance below"}
+                  {cardioPace.trim() && Number.isFinite(Number(cardioPace))
+                    ? ` · ${formatPace(Number(cardioPace))}`
+                    : ""}
+                  {" · time on Stop"}
+                </p>
+              ) : lastSession ? (
                 <p className="text-xs text-[var(--muted)]">
                   From last time ({lastSession.date})
                 </p>
@@ -910,7 +1526,7 @@ export function WorkoutLogPanel({
                 }}
                 className="space-y-4"
               >
-                {draftSets ? (
+                {draftSets && !isCardio ? (
                   <div className="space-y-3">
                     {draftSets.map((s, i) => (
                       <div
@@ -951,6 +1567,23 @@ export function WorkoutLogPanel({
                         />
                       </div>
                     ))}
+                  </div>
+                ) : isCardio ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-[var(--muted)] leading-relaxed">
+                      Plan the distance now. The session timer keeps running;
+                      minutes are saved only when you hit Stop.
+                    </p>
+                    {renderDistancePaceFields({
+                      distanceValue: cardioDistanceKm,
+                      paceValue: cardioPace,
+                      minutesHint: null,
+                      onDistance: (v) => {
+                        updateRunDistance(v);
+                        if (target.id) schedulePersistDistance(target.id);
+                      },
+                      onPace: (v) => updateRunPace(v),
+                    })}
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-3">
@@ -1007,9 +1640,18 @@ export function WorkoutLogPanel({
                 className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2.5 text-sm font-medium min-h-[44px] w-full sm:w-auto"
               >
                 Add{" "}
-                {draftSets
-                  ? `${draftSets.length} set${draftSets.length > 1 ? "s" : ""}`
-                  : `${setsCount} set${setsCount > 1 ? "s" : ""}`}{" "}
+                {isCardio
+                  ? [
+                      "planned run",
+                      cardioDistanceKm.trim()
+                        ? `${cardioDistanceKm.trim()} km`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : draftSets
+                    ? `${draftSets.length} set${draftSets.length > 1 ? "s" : ""}`
+                    : `${setsCount} set${setsCount > 1 ? "s" : ""}`}{" "}
                 to “{target.name}”
               </button>
             )}
@@ -1028,33 +1670,18 @@ export function WorkoutLogPanel({
               Start a session
             </p>
             <p className="text-sm text-[var(--muted)] mt-0.5">
-              Start → timer runs → Stop. Only one session at a time.
+              Start → add lifts or a planned run (km) → Stop locks time. Only
+              one session at a time.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={!canStart}
-              onClick={() => void startSession("Gym")}
+              onClick={() => void startSession()}
               className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2.5 text-sm font-medium min-h-[44px] disabled:opacity-50"
             >
-              {starting ? "Starting…" : "Start Gym"}
-            </button>
-            <button
-              type="button"
-              disabled={!canStart}
-              onClick={() => void startSession("Run")}
-              className="rounded-md border border-[var(--border)] px-4 py-2.5 text-sm min-h-[44px] disabled:opacity-50"
-            >
-              Start Run
-            </button>
-            <button
-              type="button"
-              disabled={!canStart}
-              onClick={() => void startSession("Workout")}
-              className="rounded-md border border-[var(--border)] px-4 py-2.5 text-sm min-h-[44px] disabled:opacity-50"
-            >
-              Start other
+              {starting ? "Starting…" : "Start Exercise"}
             </button>
           </div>
         </div>
@@ -1143,6 +1770,9 @@ export function WorkoutLogPanel({
                           {s.groups.length} exercises · {s.stats.totalSets} sets
                           {" · "}
                           {formatDurationLabel(s.durationMinutes)}
+                          {s.distanceKm != null && Number(s.distanceKm) > 0
+                            ? ` · ${s.distanceKm} km`
+                            : ""}
                           {s.caloriesBurned
                             ? ` · ${Math.round(s.caloriesBurned)} kcal EEE`
                             : ""}
