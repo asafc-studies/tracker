@@ -19,6 +19,8 @@ export type FoodSearchResult = {
   offScope?: "regional" | "global";
   /** Short label for UI, e.g. USDA · survey */
   dataSourceLabel?: string;
+  /** When re-picking from history: how many servings were logged last time. */
+  lastLoggedQuantity?: number | null;
 };
 
 export const REFERENCE_FOODS: FoodSearchResult[] = [

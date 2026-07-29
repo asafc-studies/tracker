@@ -175,10 +175,8 @@ export function MacrosLogPanel({ date }: Props) {
     mlAmount?: number,
   ) {
     const scaled = scaleFood(food, quantity, mlAmount);
-    const displayName =
-      quantity === 1 ? food.name : `${food.name} (${scaled.label})`;
     void addFood({
-      name: displayName,
+      name: food.name,
       brand: food.brand,
       proteinG: scaled.proteinG,
       carbsG: scaled.carbsG,

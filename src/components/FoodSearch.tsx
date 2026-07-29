@@ -406,7 +406,19 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             {selected.brand ? (
               <p className="text-xs text-[var(--muted)]">{selected.brand}</p>
             ) : null}
-            <p className="text-xs text-[var(--muted)] mt-1">{scaled.label}</p>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Per {selected.servingLabel}
+              {selected.lastLoggedQuantity != null &&
+              selected.lastLoggedQuantity > 0 ? (
+                <>
+                  {" "}
+                  · last logged{" "}
+                  {selected.lastLoggedQuantity === 1
+                    ? "1 serving"
+                    : `${selected.lastLoggedQuantity} servings`}
+                </>
+              ) : null}
+            </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
             {selected.servingUnit === "ml" && selected.servingAmount ? (
@@ -434,7 +446,9 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               </>
             ) : (
               <label className="space-y-1 block">
-                <span className="text-xs text-[var(--muted)]">Quantity</span>
+                <span className="text-xs text-[var(--muted)]">
+                  Servings ({selected.servingLabel})
+                </span>
                 <input
                   type="text"
                   inputMode="decimal"

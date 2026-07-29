@@ -251,7 +251,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
         body: JSON.stringify({
           action: "add",
           date,
-          name: quantity === 1 ? food.name : `${food.name} (${scaled.label})`,
+          name: food.name,
           brand: food.brand,
           savedFoodId: food.savedFoodId ?? null,
           quantity,
@@ -610,7 +610,7 @@ export function MenuTemplatesPanel({
       ...prev,
       {
         id: crypto.randomUUID(),
-        name: quantity === 1 ? food.name : `${food.name} (${scaled.label})`,
+        name: food.name,
         proteinG: scaled.proteinG,
         carbsG: scaled.carbsG,
         fatG: scaled.fatG,
