@@ -8,12 +8,14 @@ import { todayISODate } from "@/lib/tdee";
  * POST /api/menu/improve
  * Revises the persistent daily menu via GitHub Models / Gemini / OpenAI.
  */
-export async function POST() {
+export async function POST(req: Request) {
   const authz = await requireUser();
   if ("error" in authz) return authz.error;
 
   try {
-    const improved = await improveMenuWithAI(authz.userId);
+    const body = await req.json().catch(() => ({}));
+    const userRequest = typeof body?.userRequest === "string" ? body.userRequest.trim() : undefined;
+    const improved = await improveMenuWithAI(authz.userId, userRequest || undefined);
     await replaceStandingMenu(authz.userId, improved.items);
     const today = todayISODate();
     const items = await getMenuForDate(authz.userId, today);

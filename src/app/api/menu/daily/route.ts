@@ -7,6 +7,7 @@ import {
   getMenuForDate,
   removeStandingItem,
   toggleStandingCheck,
+  updateStandingItemSlot,
 } from "@/lib/standing-menu";
 import {
   resolveTargets,
@@ -123,6 +124,15 @@ export async function POST(req: Request) {
 
       const items = await getMenuForDate(authz.userId, date);
       return jsonOk({ items, totals: sumMacros(items) });
+    }
+
+    if (action === "update_slot") {
+      const id = String(body.id || "");
+      const mealSlot = String(body.mealSlot || "");
+      if (!id || !mealSlot) return jsonError("id and mealSlot required");
+      const updated = await updateStandingItemSlot(authz.userId, id, mealSlot);
+      if (!updated) return jsonError("Item not found", 404);
+      return jsonOk({ item: updated });
     }
 
     if (action === "check") {

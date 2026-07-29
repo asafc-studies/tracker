@@ -231,6 +231,26 @@ export async function addStandingItem(
   return row;
 }
 
+export async function updateStandingItemSlot(
+  userId: string,
+  id: string,
+  mealSlot: string,
+) {
+  const db = await getDb();
+  const slot = normalizeMealSlot(mealSlot);
+  const rows = await db
+    .update(schema.standingMenuItems)
+    .set({ mealSlot: slot, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.standingMenuItems.id, id),
+        eq(schema.standingMenuItems.userId, userId),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function removeStandingItem(userId: string, id: string) {
   const db = await getDb();
   const rows = await db

@@ -366,6 +366,7 @@ async function chatCompletionsGemini(opts: {
 
 export async function improveMenuWithAI(
   userId: string,
+  userRequest?: string,
 ): Promise<ImprovedMenuResult> {
   const provider = resolveProvider();
   const context = await buildMenuImproveContext(userId);
@@ -412,6 +413,9 @@ Return ONLY valid JSON (no markdown):
   const user = JSON.stringify({
     instruction:
       "Rewrite the standing daily menu so projectedTotals land on targets. Close the gaps below. Keep foods familiar.",
+    ...(userRequest
+      ? { userPriorityRequest: userRequest, note: "The userPriorityRequest is the MOST IMPORTANT instruction — follow it above all other rules." }
+      : {}),
     mustHitTargets: context.targets,
     currentPlanTotals: planTotals,
     gapsToClose: gaps,
