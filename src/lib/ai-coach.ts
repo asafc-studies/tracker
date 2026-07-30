@@ -10,6 +10,7 @@ import {
   todayISODate,
   type ActivityLevel,
 } from "@/lib/tdee";
+import { listWorkoutPlans } from "@/lib/workout-plans";
 
 export type CoachScope = "today" | "workout";
 
@@ -251,6 +252,22 @@ async function buildWorkoutContext(userId: string) {
     muscles: e.muscles.slice(0, 3),
   }));
 
+  const { plans } = await listWorkoutPlans(userId);
+  const workoutPlans = plans.map((p) => ({
+    name: p.name,
+    exerciseCount: p.items.length,
+    exercises: p.items.map((item) => ({
+      name: item.name,
+      lift: item.lift,
+      place: item.category,
+      sets: item.setsCount,
+      reps: item.reps,
+      weightKg: item.weightKg,
+      bodyweight: item.bodyweight,
+      cardio: item.cardio,
+    })),
+  }));
+
   return {
     ...base,
     focus: {
@@ -258,6 +275,9 @@ async function buildWorkoutContext(userId: string) {
       cardioSessions: cardio.slice(0, 8),
       note: "Prefer naming specific catalog exercises to ADD or REPLACE. Cardio volume is secondary to lift/selection advice.",
     },
+    workoutPlans,
+    workoutPlansNote:
+      "Each plan is a pool of candidate exercises the user may pick from — not a mandatory full session. Most workouts use only a subset of a plan's list. Advise on plan names, exercise mix, and planned sets/reps/weights vs their goalTarget/profile; suggest adds or swaps into specific plans from availableExercises.",
     availableExercises,
   };
 }
@@ -303,10 +323,11 @@ export async function coachWithAI(
   const system =
     scope === "workout"
       ? `You are a pragmatic strength & conditioning coach for body recomposition.
-Use the user's goalTarget (if set), recent sessions, lifts, cardio, and availableExercises (catalog they can log in the app).
+Use the user's goalTarget (if set), profile body stats, recent sessions, lifts, cardio, workoutPlans, and availableExercises (catalog they can log / add to plans).
+IMPORTANT about workoutPlans: each plan is a menu of possible exercises — the user usually does NOT perform every exercise in a plan in one workout. Treat plans as selectable pools keyed by plan name; never assume the full list is one session.
 If nutrition context includes today with dayNotFinished or intakePartial, do not judge calorie deficits from partial daily intake.
-CRITICAL for "improve": do NOT stop at vague praise ("good mix") or only "do more cardio". At least 2 improve bullets must name specific exercises from availableExercises to ADD to sessions or REPLACE a current lift (e.g. "Replace X with Y" or "Add Z for 3×8–12"). Include sets/reps when helpful. Cardio tips are optional extras, not the main improve content.
-Keep doing may name lifts they should keep. Do not invent logged numbers — only suggest based on patterns.
+CRITICAL for "improve": do NOT stop at vague praise ("good mix") or only "do more cardio". Include concrete advice about their named plans — e.g. add/replace exercises in "Plan 1" / named plans, or adjust planned sets/reps/weights toward the goal. At least 2 improve bullets must name specific exercises from availableExercises (to add into a plan or swap for a listed one), with sets×reps (and load when relevant). Cardio tips are optional extras.
+Keep doing may name lifts or plan choices worth keeping. Do not invent logged numbers — only suggest based on patterns in context.
 ${JSON_SHAPE}
 keepDoing / improve / watchOut: 2-4 short actionable bullets each.`
       : `You are a pragmatic body-recomposition coach.
@@ -322,7 +343,7 @@ keepDoing / improve / watchOut: 2-4 short actionable bullets each.`;
     scope,
     instruction:
       scope === "workout"
-        ? "Review recent lifts vs goal. In improve, prescribe specific catalog exercises to add or swap in — not generic volume/cardio-only tips."
+        ? "Review recent lifts, named workoutPlans (pools of candidates — not full sessions), and goalTarget. In improve, suggest specific plan adds/swaps and set/rep/weight tweaks — not generic volume/cardio-only tips."
         : "Summarize today + recent trends; say what to keep doing and what to improve.",
     ...(userRequest
       ? {
