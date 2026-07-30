@@ -50,7 +50,8 @@ export function getDbSync() {
   // (a cached drizzle instance keeps the schema from first boot).
   if (
     !globalForDb.__recompDb ||
-    !("standingMenuItems" in (globalForDb.__recompDb.query ?? {}))
+    !("standingMenuItems" in (globalForDb.__recompDb.query ?? {})) ||
+    !("workoutPlans" in (globalForDb.__recompDb.query ?? {}))
   ) {
     globalForDb.__recompDb = drizzle(client, { schema });
   }

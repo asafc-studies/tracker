@@ -20,6 +20,7 @@ import {
   WorkoutLogPanel,
   type DaySession,
 } from "@/components/WorkoutLogPanel";
+import { WorkoutPlannerPanel } from "@/components/WorkoutPlannerPanel";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   type BodyRegion,
@@ -109,6 +110,7 @@ function normalizePanel(p: string | null): ExercisePanel {
     "weight",
     "muscles",
     "log",
+    "plan",
     "tips",
     "history",
   ];
@@ -822,6 +824,7 @@ export function ExercisesPage() {
           onClearFocus={() => setFocusSessionId(null)}
         />
       ) : null}
+      {panel === "plan" ? <WorkoutPlannerPanel /> : null}
       {panel === "tips" ? (
         <AiCoachPanel
           scope="workout"

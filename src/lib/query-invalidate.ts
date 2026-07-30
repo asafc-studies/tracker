@@ -18,6 +18,7 @@ export async function invalidateAfterLifts(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["lifts"] }),
     queryClient.invalidateQueries({ queryKey: ["history"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.workoutPlans }),
   ]);
 }
 

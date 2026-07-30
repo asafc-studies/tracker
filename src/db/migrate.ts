@@ -183,6 +183,36 @@ const INCREMENTAL = [
   )`,
   `CREATE INDEX IF NOT EXISTS daily_menu_checks_user_date ON daily_menu_checks(userId, date)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS daily_menu_checks_unique ON daily_menu_checks(userId, date, standingItemId)`,
+  `CREATE TABLE IF NOT EXISTS workout_plans (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS workout_plans_user ON workout_plans(userId)`,
+  `CREATE TABLE IF NOT EXISTS workout_plan_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    planId TEXT NOT NULL REFERENCES workout_plans(id) ON DELETE CASCADE,
+    lift TEXT NOT NULL,
+    category TEXT,
+    setsCount INTEGER NOT NULL DEFAULT 3,
+    reps INTEGER NOT NULL DEFAULT 8,
+    weightKg REAL NOT NULL DEFAULT 0,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    notes TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS workout_plan_items_plan ON workout_plan_items(planId)`,
+  `CREATE TABLE IF NOT EXISTS workout_plan_checks (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sessionId TEXT NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
+    planItemId TEXT NOT NULL REFERENCES workout_plan_items(id) ON DELETE CASCADE,
+    setIds TEXT NOT NULL DEFAULT '[]',
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS workout_plan_checks_session ON workout_plan_checks(sessionId)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS workout_plan_checks_unique ON workout_plan_checks(sessionId, planItemId)`,
 ];
 
 export async function ensureMigrated(client: Client) {

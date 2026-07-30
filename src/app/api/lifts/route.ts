@@ -488,6 +488,10 @@ export async function POST(req: Request) {
       }
     }
 
+    await db
+      .delete(schema.workoutPlanChecks)
+      .where(eq(schema.workoutPlanChecks.sessionId, sessionId));
+
     const updated = await db.query.workoutSessions.findFirst({
       where: eq(schema.workoutSessions.id, sessionId),
       with: { sets: true },

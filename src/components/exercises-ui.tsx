@@ -7,6 +7,7 @@ export type ExercisePanel =
   | "weight"
   | "muscles"
   | "log"
+  | "plan"
   | "tips"
   | "history";
 
@@ -19,6 +20,7 @@ export const EXERCISE_PANELS: Array<{
   { id: "weight", label: "Body weight", short: "Weight" },
   { id: "muscles", label: "Muscles" },
   { id: "log", label: "Log" },
+  { id: "plan", label: "Plan" },
   { id: "tips", label: "Tips" },
   { id: "history", label: "History" },
 ];

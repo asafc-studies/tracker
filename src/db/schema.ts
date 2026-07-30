@@ -314,6 +314,63 @@ export const liftSets = sqliteTable("lift_sets", {
   weightKg: real("weightKg").notNull(),
 });
 
+/** Named pre-planned workout menus (switch between them in Planner). */
+export const workoutPlans = sqliteTable("workout_plans", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export const workoutPlanItems = sqliteTable("workout_plan_items", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  planId: text("planId")
+    .notNull()
+    .references(() => workoutPlans.id, { onDelete: "cascade" }),
+  lift: text("lift").notNull(),
+  category: text("category", {
+    enum: ["gym", "home_gym", "outdoor"],
+  }),
+  setsCount: integer("setsCount").notNull().default(3),
+  reps: integer("reps").notNull().default(8),
+  weightKg: real("weightKg").notNull().default(0),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  notes: text("notes"),
+});
+
+/**
+ * Checks are scoped to an in-progress workout session (not calendar day).
+ * Cleared when the session is stopped.
+ */
+export const workoutPlanChecks = sqliteTable("workout_plan_checks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  sessionId: text("sessionId")
+    .notNull()
+    .references(() => workoutSessions.id, { onDelete: "cascade" }),
+  planItemId: text("planItemId")
+    .notNull()
+    .references(() => workoutPlanItems.id, { onDelete: "cascade" }),
+  /** JSON array of lift_set ids created by this check. */
+  setIds: text("setIds").notNull().default("[]"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles),
   accounts: many(accounts),
@@ -326,6 +383,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   standingMenuItems: many(standingMenuItems),
   dailyMenuChecks: many(dailyMenuChecks),
   workoutSessions: many(workoutSessions),
+  workoutPlans: many(workoutPlans),
+  workoutPlanChecks: many(workoutPlanChecks),
 }));
 
 export const standingMenuItemsRelations = relations(
@@ -363,6 +422,7 @@ export const workoutSessionsRelations = relations(
   workoutSessions,
   ({ many }) => ({
     sets: many(liftSets),
+    planChecks: many(workoutPlanChecks),
   }),
 );
 
@@ -372,3 +432,32 @@ export const liftSetsRelations = relations(liftSets, ({ one }) => ({
     references: [workoutSessions.id],
   }),
 }));
+
+export const workoutPlansRelations = relations(workoutPlans, ({ many }) => ({
+  items: many(workoutPlanItems),
+}));
+
+export const workoutPlanItemsRelations = relations(
+  workoutPlanItems,
+  ({ one, many }) => ({
+    plan: one(workoutPlans, {
+      fields: [workoutPlanItems.planId],
+      references: [workoutPlans.id],
+    }),
+    checks: many(workoutPlanChecks),
+  }),
+);
+
+export const workoutPlanChecksRelations = relations(
+  workoutPlanChecks,
+  ({ one }) => ({
+    planItem: one(workoutPlanItems, {
+      fields: [workoutPlanChecks.planItemId],
+      references: [workoutPlanItems.id],
+    }),
+    session: one(workoutSessions, {
+      fields: [workoutPlanChecks.sessionId],
+      references: [workoutSessions.id],
+    }),
+  }),
+);
