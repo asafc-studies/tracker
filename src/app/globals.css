@@ -45,12 +45,18 @@ body {
   display: none;
 }
 
-/* Kill mobile tap wash / selection flash on Recharts SVGs */
+/* Kill mobile tap wash / focus ring on Recharts (SVG is tabIndex=0 by default) */
 .recharts-wrapper,
 .recharts-surface,
-.recharts-responsive-container {
+.recharts-responsive-container,
+.recharts-wrapper *,
+.recharts-surface:focus,
+.recharts-surface:focus-visible,
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible {
   -webkit-tap-highlight-color: transparent;
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
   user-select: none;
   -webkit-user-select: none;
 }

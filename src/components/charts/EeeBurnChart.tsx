@@ -40,6 +40,7 @@ export function EeeBurnChart({
           data={rows}
           margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           barCategoryGap="18%"
+          accessibilityLayer={false}
         >
           <CartesianGrid strokeDasharray="3 3" vertical={false} {...grid} />
           <XAxis
@@ -50,7 +51,7 @@ export function EeeBurnChart({
           />
           <YAxis tick={axis} width={40} />
           <Tooltip
-            cursor={false}
+            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",

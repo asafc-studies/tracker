@@ -40,13 +40,14 @@ export function NutritionChart({
         <LineChart
           data={withTarget}
           margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+          accessibilityLayer={false}
         >
           <CartesianGrid strokeDasharray="3 3" {...grid} />
           <XAxis dataKey="date" tick={axis} tickFormatter={(v) => v.slice(5)} />
           <YAxis yAxisId="p" tick={axis} width={36} />
           <YAxis yAxisId="c" orientation="right" tick={axis} width={40} />
           <Tooltip
-            cursor={false}
+            cursor={{ stroke: "rgba(125, 211, 192, 0.35)", strokeWidth: 1 }}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
