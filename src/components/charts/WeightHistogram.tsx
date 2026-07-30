@@ -72,7 +72,6 @@ export function WeightHistogram({
             dataKey="weightKg"
             radius={[4, 4, 0, 0]}
             maxBarSize={28}
-            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
           >
             {data.map((entry) => (
               <Cell

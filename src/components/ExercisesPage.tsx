@@ -7,7 +7,6 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { BodyHeatmap } from "@/components/BodyHeatmap";
 import { MuscleMap } from "@/components/MuscleMap";
-import { WeightHistogram } from "@/components/charts/WeightHistogram";
 import {
   DisplayNumber,
   ExercisePanelNav,
@@ -28,10 +27,7 @@ import {
   type DayLiftStats,
 } from "@/lib/exercises";
 import type { HeatMode, MuscleHeatRow } from "@/lib/muscle-tonnage";
-import {
-  invalidateAfterLifts,
-  invalidateAfterWeight,
-} from "@/lib/query-invalidate";
+import { invalidateAfterLifts } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
 
@@ -66,13 +62,6 @@ type RecentDay = {
   caloriesBurned?: number | null;
 };
 
-type WeightRow = {
-  id: string;
-  date: string;
-  weightKg: number;
-  note?: string | null;
-};
-
 type LiftsPayload = {
   sessions?: DaySession[];
   inProgressSession?: DaySession | null;
@@ -89,12 +78,6 @@ type LiftsPayload = {
   funny?: string[];
   recentGrouped?: RecentDay[];
   eee?: { caloriesBurned?: number | null };
-  bodyWeightKg?: number | null;
-  profileWeightKg?: number | null;
-};
-
-type WeightHistoryPayload = {
-  rows?: WeightRow[];
 };
 
 function clampDate(d: string): string {
@@ -105,9 +88,9 @@ function clampDate(d: string): string {
 function normalizePanel(p: string | null): ExercisePanel {
   if (p === "heatmap") return "muscles";
   if (p === "session") return "log";
+  if (p === "weight") return "overview";
   const valid: ExercisePanel[] = [
     "overview",
-    "weight",
     "muscles",
     "log",
     "plan",
@@ -138,14 +121,6 @@ export function ExercisesPage() {
   const [date, setDate] = useState(initialDate);
   const [heatMode, setHeatMode] = useState<HeatMode>("tonnage");
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null);
-  const [weightInput, setWeightInput] = useState("");
-  const [weightDirty, setWeightDirty] = useState(false);
-  const [savingWeight, setSavingWeight] = useState(false);
-  const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
-  const [historyEditDraft, setHistoryEditDraft] = useState<{
-    weightKg: string;
-    date: string;
-  } | null>(null);
   const [editingSessionHistoryId, setEditingSessionHistoryId] = useState<
     string | null
   >(null);
@@ -188,13 +163,6 @@ export function ExercisesPage() {
       ),
   });
 
-  const weightHistoryQuery = useQuery({
-    queryKey: queryKeys.history("weight", "90d"),
-    queryFn: () =>
-      apiFetch<WeightHistoryPayload>("/api/history?tab=weight&range=90d"),
-    enabled: panel === "weight",
-  });
-
   const lifts = liftsQuery.data;
   const sessions = lifts?.sessions ?? [];
   const inProgressSession = lifts?.inProgressSession ?? null;
@@ -208,19 +176,7 @@ export function ExercisesPage() {
   const funny = lifts?.funny ?? [];
   const recentGrouped = lifts?.recentGrouped ?? [];
   const caloriesBurned = lifts?.eee?.caloriesBurned ?? null;
-  const bodyWeightKg = lifts?.bodyWeightKg ?? null;
-  const profileWeightKg = lifts?.profileWeightKg ?? null;
-  const weightHistory = weightHistoryQuery.data?.rows ?? [];
   const totalSets = stats?.totalSets ?? 0;
-
-  useEffect(() => {
-    setWeightDirty(false);
-  }, [date]);
-
-  useEffect(() => {
-    if (weightDirty) return;
-    setWeightInput(bodyWeightKg != null ? String(bodyWeightKg) : "");
-  }, [bodyWeightKg, weightDirty, date]);
 
   async function refreshLifts() {
     await invalidateAfterLifts(queryClient);
@@ -258,61 +214,6 @@ export function ExercisesPage() {
       window.alert(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSavingSessionHistory(false);
-    }
-  }
-
-  async function logBodyWeight(e: React.FormEvent) {
-    e.preventDefault();
-    const w = Number(weightInput);
-    if (!w || w <= 0) return;
-    setSavingWeight(true);
-    try {
-      await apiFetch("/api/weight", {
-        method: "POST",
-        body: JSON.stringify({ weightKg: w, date, note: "After exercise" }),
-      });
-      setWeightDirty(false);
-      await invalidateAfterWeight(queryClient);
-    } finally {
-      setSavingWeight(false);
-    }
-  }
-
-  async function saveHistoryWeight(id: string) {
-    if (!historyEditDraft) return;
-    const w = Number(historyEditDraft.weightKg);
-    if (!w || w <= 0) return;
-    setSavingWeight(true);
-    try {
-      await apiFetch("/api/weight", {
-        method: "PATCH",
-        body: JSON.stringify({
-          id,
-          weightKg: w,
-          date: historyEditDraft.date,
-        }),
-      });
-      setEditingHistoryId(null);
-      setHistoryEditDraft(null);
-      await invalidateAfterWeight(queryClient);
-    } finally {
-      setSavingWeight(false);
-    }
-  }
-
-  async function deleteHistoryWeight(id: string) {
-    setSavingWeight(true);
-    try {
-      await apiFetch(`/api/weight?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      if (editingHistoryId === id) {
-        setEditingHistoryId(null);
-        setHistoryEditDraft(null);
-      }
-      await invalidateAfterWeight(queryClient);
-    } finally {
-      setSavingWeight(false);
     }
   }
 
@@ -413,187 +314,6 @@ export function ExercisesPage() {
           <span className="text-sm text-[var(--muted)]"> sets logged</span>
         </button>
       </div>
-    </div>
-  );
-
-  const weightPanel = (
-    <div className="space-y-4">
-      <PanelCard
-        title="Body weight"
-        subtitle={
-          <span className="text-xs text-[var(--muted)]">
-            {todayFriendly(date)}
-            {profileWeightKg != null ? (
-              <>
-                {" "}
-                · profile{" "}
-                <DisplayNumber size="sm">{profileWeightKg}</DisplayNumber> kg
-                (latest log)
-              </>
-            ) : null}
-          </span>
-        }
-      >
-        <form
-          onSubmit={(e) => void logBodyWeight(e)}
-          className="flex flex-wrap items-end gap-3"
-        >
-          <label className="space-y-1 block flex-1 min-w-[8rem]">
-            <span className="text-xs text-[var(--muted)]">Weight (kg)</span>
-            <input
-              className={field}
-              type="number"
-              step="0.1"
-              min={20}
-              placeholder={
-                bodyWeightKg == null && profileWeightKg != null
-                  ? `Latest ${profileWeightKg}`
-                  : "e.g. 78.4"
-              }
-              value={weightInput}
-              onChange={(e) => {
-                setWeightDirty(true);
-                setWeightInput(e.target.value);
-              }}
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={savingWeight || !weightInput}
-            className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            {savingWeight ? "Updating…" : "Update"}
-          </button>
-          <p className="text-xs text-[var(--muted)] w-full">
-            Updates this day&apos;s entry, the chart below, and your profile
-            weight (most recent log).
-          </p>
-        </form>
-      </PanelCard>
-
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)] mb-3">
-          Last 90 days
-        </p>
-        <WeightHistogram data={weightHistory} highlightDate={date} />
-      </section>
-
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)] px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]/60">
-          History
-        </p>
-        {weightHistory.length === 0 ? (
-          <p className="text-sm text-[var(--muted)] py-6 text-center">
-            No entries yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-[var(--border)]">
-            {[...weightHistory].reverse().map((row) => {
-              const editing = editingHistoryId === row.id;
-              const draft = editing
-                ? historyEditDraft ?? {
-                    weightKg: String(row.weightKg),
-                    date: row.date,
-                  }
-                : null;
-              return (
-                <li key={row.id} className="px-4 py-2.5 text-sm">
-                  {editing && draft ? (
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          className={field}
-                          type="date"
-                          max={today}
-                          value={draft.date}
-                          onChange={(e) =>
-                            setHistoryEditDraft({
-                              ...draft,
-                              date: e.target.value,
-                            })
-                          }
-                        />
-                        <input
-                          className={field}
-                          type="number"
-                          step="0.1"
-                          min={20}
-                          value={draft.weightKg}
-                          onChange={(e) =>
-                            setHistoryEditDraft({
-                              ...draft,
-                              weightKg: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={savingWeight}
-                          onClick={() => void saveHistoryWeight(row.id)}
-                          className="text-xs text-[var(--accent)] font-medium"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingHistoryId(null);
-                            setHistoryEditDraft(null);
-                          }}
-                          className="text-xs text-[var(--muted)]"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setDateSafe(row.date)}
-                        className={`text-left hover:text-[var(--accent)] transition-colors ${
-                          row.date === date
-                            ? "text-[var(--accent)]"
-                            : "text-[var(--muted)]"
-                        }`}
-                      >
-                        {row.date}
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <DisplayNumber size="sm">{row.weightKg}</DisplayNumber>
-                        <span className="text-xs text-[var(--muted)]">kg</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingHistoryId(row.id);
-                            setHistoryEditDraft({
-                              weightKg: String(row.weightKg),
-                              date: row.date,
-                            });
-                          }}
-                          className="text-xs px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          disabled={savingWeight}
-                          onClick={() => void deleteHistoryWeight(row.id)}
-                          className="text-xs px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                        >
-                          Del
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
     </div>
   );
 
@@ -720,7 +440,6 @@ export function ExercisesPage() {
       <ExercisePanelNav active={panel} onChange={setPanel} />
 
       {panel === "overview" ? overviewPanel : null}
-      {panel === "weight" ? weightPanel : null}
       {panel === "muscles" ? (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">

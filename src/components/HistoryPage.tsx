@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { exerciseDisplayName, formatSetWeight } from "@/lib/exercises";
 import { invalidateAfterWeight } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
+import { todayISODate } from "@/lib/tdee";
 
 type Tab = "weight" | "nutrition" | "burn";
 type Range = "7d" | "30d" | "90d" | "all";
@@ -38,8 +39,15 @@ type EeeDay = {
   setCount: number;
 };
 
+type WeightRow = {
+  id: string;
+  date: string;
+  weightKg: number;
+  note?: string | null;
+};
+
 type HistoryPayload = {
-  rows?: Array<{ date: string; weightKg: number; note?: string | null }>;
+  rows?: WeightRow[];
   days?: Array<{ date: string; proteinG: number; calories: number }>;
   proteinTarget?: number | null;
   series?: EeeDay[];
@@ -48,9 +56,17 @@ type HistoryPayload = {
 
 export function HistoryPage() {
   const queryClient = useQueryClient();
+  const today = todayISODate();
   const [tab, setTab] = useState<Tab>("weight");
   const [range, setRange] = useState<Range>("30d");
   const [quickWeight, setQuickWeight] = useState("");
+  const [quickDate, setQuickDate] = useState(today);
+  const [savingWeight, setSavingWeight] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    weightKg: string;
+    date: string;
+  } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const apiTab = tab === "burn" ? "lifts" : tab;
@@ -69,17 +85,69 @@ export function HistoryPage() {
   const sessions = historyQuery.data?.sessions ?? [];
   const loading = historyQuery.isLoading;
 
+  useEffect(() => {
+    setQuickDate(today);
+  }, [today]);
+
   async function logWeight(e: React.FormEvent) {
     e.preventDefault();
     const weightKg = Number(quickWeight);
-    if (!weightKg) return;
-    await apiFetch("/api/weight", {
-      method: "POST",
-      body: JSON.stringify({ weightKg }),
-    });
-    setQuickWeight("");
-    setTab("weight");
-    await invalidateAfterWeight(queryClient);
+    if (!weightKg || weightKg <= 0) return;
+    setSavingWeight(true);
+    try {
+      await apiFetch("/api/weight", {
+        method: "POST",
+        body: JSON.stringify({
+          weightKg,
+          date: quickDate || today,
+        }),
+      });
+      setQuickWeight("");
+      setTab("weight");
+      await invalidateAfterWeight(queryClient);
+    } finally {
+      setSavingWeight(false);
+    }
+  }
+
+  async function saveWeight(id: string) {
+    if (!editDraft) return;
+    const weightKg = Number(editDraft.weightKg);
+    if (!weightKg || weightKg <= 0) return;
+    setSavingWeight(true);
+    try {
+      await apiFetch("/api/weight", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id,
+          weightKg,
+          date: editDraft.date,
+        }),
+      });
+      setEditingId(null);
+      setEditDraft(null);
+      await invalidateAfterWeight(queryClient);
+    } finally {
+      setSavingWeight(false);
+    }
+  }
+
+  async function deleteWeight(id: string) {
+    const ok = window.confirm("Delete this weight entry?");
+    if (!ok) return;
+    setSavingWeight(true);
+    try {
+      await apiFetch(`/api/weight?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (editingId === id) {
+        setEditingId(null);
+        setEditDraft(null);
+      }
+      await invalidateAfterWeight(queryClient);
+    } finally {
+      setSavingWeight(false);
+    }
   }
 
   const tabBtn = (id: Tab, label: string) => (
@@ -96,6 +164,9 @@ export function HistoryPage() {
       {label}
     </button>
   );
+
+  const field =
+    "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm min-h-[44px]";
 
   return (
     <AppShell title="History">
@@ -125,22 +196,46 @@ export function HistoryPage() {
       {tab === "weight" ? (
         <form
           onSubmit={(e) => void logWeight(e)}
-          className="flex gap-2 mb-6 md:hidden max-w-sm"
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 mb-6 space-y-3"
         >
-          <input
-            type="number"
-            step="0.1"
-            placeholder="Today's weight (kg)"
-            value={quickWeight}
-            onChange={(e) => setQuickWeight(e.target.value)}
-            className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm min-h-[44px]"
-          />
-          <button
-            type="submit"
-            className="rounded-md bg-[var(--accent)] text-[var(--background)] px-3 py-2 text-sm font-medium min-h-[44px]"
-          >
-            Log
-          </button>
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+            Log or update weight
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="space-y-1 block flex-1 min-w-[8rem]">
+              <span className="text-xs text-[var(--muted)]">Date</span>
+              <input
+                type="date"
+                max={today}
+                value={quickDate}
+                onChange={(e) => setQuickDate(e.target.value)}
+                className={field}
+              />
+            </label>
+            <label className="space-y-1 block flex-1 min-w-[8rem]">
+              <span className="text-xs text-[var(--muted)]">Weight (kg)</span>
+              <input
+                type="number"
+                step="0.1"
+                min={20}
+                placeholder="e.g. 78.4"
+                value={quickWeight}
+                onChange={(e) => setQuickWeight(e.target.value)}
+                className={field}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={savingWeight || !quickWeight}
+              className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50"
+            >
+              {savingWeight ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Saves that day&apos;s entry (creates or updates) and syncs profile
+            weight to the most recent log.
+          </p>
         </form>
       ) : null}
 
@@ -169,17 +264,111 @@ export function HistoryPage() {
       </div>
 
       {tab === "weight" ? (
-        <ul className="space-y-2 text-sm">
-          {[...weightRows].reverse().map((r) => (
-            <li
-              key={r.date}
-              className="flex justify-between border-b border-[var(--border)] py-2"
-            >
-              <span className="text-[var(--muted)]">{r.date}</span>
-              <span>{r.weightKg} kg</span>
-            </li>
-          ))}
-        </ul>
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)] px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]/60">
+            Entries
+          </p>
+          {weightRows.length === 0 ? (
+            <p className="text-sm text-[var(--muted)] py-6 text-center">
+              No entries in this range.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              {[...weightRows].reverse().map((row) => {
+                const editing = editingId === row.id;
+                const draft = editing
+                  ? editDraft ?? {
+                      weightKg: String(row.weightKg),
+                      date: row.date,
+                    }
+                  : null;
+                return (
+                  <li key={row.id} className="px-4 py-2.5 text-sm">
+                    {editing && draft ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            className={field}
+                            type="date"
+                            max={today}
+                            value={draft.date}
+                            onChange={(e) =>
+                              setEditDraft({
+                                ...draft,
+                                date: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className={field}
+                            type="number"
+                            step="0.1"
+                            min={20}
+                            value={draft.weightKg}
+                            onChange={(e) =>
+                              setEditDraft({
+                                ...draft,
+                                weightKg: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={savingWeight}
+                            onClick={() => void saveWeight(row.id)}
+                            className="text-xs text-[var(--accent)] font-medium min-h-[36px]"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditDraft(null);
+                            }}
+                            className="text-xs text-[var(--muted)] min-h-[36px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[var(--muted)]">{row.date}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{row.weightKg} kg</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(row.id);
+                              setEditDraft({
+                                weightKg: String(row.weightKg),
+                                date: row.date,
+                              });
+                            }}
+                            className="text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px]"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingWeight}
+                            onClick={() => void deleteWeight(row.id)}
+                            className="text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px]"
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       ) : null}
 
       {tab === "nutrition" ? (

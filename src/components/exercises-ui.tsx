@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 
 export type ExercisePanel =
   | "overview"
-  | "weight"
   | "muscles"
   | "log"
   | "plan"
@@ -17,7 +16,6 @@ export const EXERCISE_PANELS: Array<{
   short?: string;
 }> = [
   { id: "overview", label: "Overview", short: "Day" },
-  { id: "weight", label: "Body weight", short: "Weight" },
   { id: "muscles", label: "Muscles" },
   { id: "log", label: "Log" },
   { id: "plan", label: "Plan" },

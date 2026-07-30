@@ -68,7 +68,6 @@ export function EeeBurnChart({
             radius={[4, 4, 0, 0]}
             maxBarSize={28}
             name="EEE (kcal)"
-            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
           />
         </BarChart>
       </ResponsiveContainer>
