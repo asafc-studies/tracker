@@ -363,6 +363,16 @@ export const EXERCISES: ExerciseDef[] = [
     bodyweight: false,
   },
   {
+    id: "dual_cable_seated_row",
+    name: "Dual-cable seated row",
+    group: "gym",
+    equipment: "Dual cable station + seat",
+    type: "compound",
+    bodyRegions: ["back", "arms"],
+    muscles: ["lats", "mid_back", "biceps"],
+    bodyweight: false,
+  },
+  {
     id: "chest_supported_row",
     name: "Chest-supported row machine",
     group: "gym",
