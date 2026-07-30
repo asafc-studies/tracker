@@ -660,7 +660,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     id: "dumbbell_lateral_raise",
-    name: "Dumbbell lateral raise",
+    name: "Dumbbell side lateral raise",
     group: "home_gym",
     equipment: "Dumbbells",
     type: "isolation",

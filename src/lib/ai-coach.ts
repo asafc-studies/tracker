@@ -1,7 +1,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { aiChatJson, extractJsonObject } from "@/lib/ai-client";
-import { getExercise } from "@/lib/exercises";
+import { EXERCISES, getExercise } from "@/lib/exercises";
 import { getMacroWarnings, sumMacros } from "@/lib/macros";
 import {
   DEFAULT_DEFICIT_KCAL,
@@ -25,6 +25,30 @@ function daysAgoISO(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+function localDayContext() {
+  const now = new Date();
+  return {
+    localTime: now.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }),
+    localHour: now.getHours(),
+  };
+}
+
+function intakeLooksPartial(
+  calories: number,
+  calorieTarget: number,
+  isCurrentDay: boolean,
+) {
+  if (!isCurrentDay) {
+    return calories < calorieTarget * 0.55;
+  }
+  /** Current day: always treat as in progress until most of target is logged. */
+  return calories < calorieTarget * 0.85;
 }
 
 function asStringList(raw: unknown, max = 5): string[] {
@@ -73,6 +97,7 @@ async function buildTodayContext(userId: string) {
 
   const today = todayISODate();
   const since = daysAgoISO(14);
+  const { localTime, localHour } = localDayContext();
 
   const foodLogs = await db.query.foodLogs.findMany({
     where: and(
@@ -94,20 +119,41 @@ async function buildTodayContext(userId: string) {
     .slice(0, 7)
     .map(([date, foods]) => {
       const totals = sumMacros(foods);
+      const isCurrentDay = date === today;
+      const partial = intakeLooksPartial(
+        totals.calories,
+        targets.calorieTarget,
+        isCurrentDay,
+      );
+      const warnings =
+        partial && isCurrentDay
+          ? []
+          : getMacroWarnings(totals, {
+              calorieTarget: targets.calorieTarget,
+              proteinG: targets.proteinG,
+              carbsG: targets.carbsG,
+              fatG: targets.fatG,
+            }).map((w) => w.title);
       return {
         date,
         totals,
-        warnings: getMacroWarnings(totals, {
-          calorieTarget: targets.calorieTarget,
-          proteinG: targets.proteinG,
-          carbsG: targets.carbsG,
-          fatG: targets.fatG,
-        }).map((w) => w.title),
+        dayNotFinished: isCurrentDay,
+        intakePartial: partial,
+        intakePercentOfTarget:
+          targets.calorieTarget > 0
+            ? Math.round((totals.calories / targets.calorieTarget) * 100)
+            : 0,
+        warnings,
       };
     });
 
   const todayFoods = byDate.get(today) ?? [];
   const todayTotals = sumMacros(todayFoods);
+  const todayPartial = intakeLooksPartial(
+    todayTotals.calories,
+    targets.calorieTarget,
+    true,
+  );
 
   const sessions = await db.query.workoutSessions.findMany({
     where: and(
@@ -159,9 +205,20 @@ async function buildTodayContext(userId: string) {
     },
     today: {
       date: today,
+      localTime,
+      localHour,
+      dayNotFinished: true,
+      intakePartial: todayPartial,
+      intakePercentOfTarget:
+        targets.calorieTarget > 0
+          ? Math.round((todayTotals.calories / targets.calorieTarget) * 100)
+          : 0,
       intake: todayTotals,
       foodCount: todayFoods.length,
       sessions: recentWorkouts.filter((w) => w.date === today),
+      nutritionNote: todayPartial
+        ? "The calendar day has not finished. Logged calories are partial — do NOT treat low intake as a severe deficit, starvation, or failed adherence. Mention that more meals are likely still ahead."
+        : "Most of today's intake appears logged.",
     },
     recentNutrition,
     recentWorkouts,
@@ -184,13 +241,24 @@ async function buildWorkoutContext(userId: string) {
       (w.exercises ?? []).some((e) => e.type === "cardio"),
   );
 
+  const availableExercises = EXERCISES.filter(
+    (e) => !["squat", "deadlift", "bench"].includes(e.id),
+  ).map((e) => ({
+    id: e.id,
+    name: e.name,
+    place: e.group,
+    type: e.type,
+    muscles: e.muscles.slice(0, 3),
+  }));
+
   return {
     ...base,
     focus: {
       strengthSessions: gymish.slice(0, 8),
       cardioSessions: cardio.slice(0, 8),
-      note: "Suggest exercise progressions, volume balance, and aerobic work. EEE uses duration (+ distance/pace for runs).",
+      note: "Prefer naming specific catalog exercises to ADD or REPLACE. Cardio volume is secondary to lift/selection advice.",
     },
+    availableExercises,
   };
 }
 
@@ -235,14 +303,17 @@ export async function coachWithAI(
   const system =
     scope === "workout"
       ? `You are a pragmatic strength & conditioning coach for body recomposition.
-Use the user's goalTarget (if set), recent sessions, lifts, and cardio (duration/distance/EEE).
-Be concrete: name exercises, sets/reps ranges, or weekly cardio minutes when helpful.
-Do not invent logged numbers — only suggest based on patterns.
+Use the user's goalTarget (if set), recent sessions, lifts, cardio, and availableExercises (catalog they can log in the app).
+If nutrition context includes today with dayNotFinished or intakePartial, do not judge calorie deficits from partial daily intake.
+CRITICAL for "improve": do NOT stop at vague praise ("good mix") or only "do more cardio". At least 2 improve bullets must name specific exercises from availableExercises to ADD to sessions or REPLACE a current lift (e.g. "Replace X with Y" or "Add Z for 3×8–12"). Include sets/reps when helpful. Cardio tips are optional extras, not the main improve content.
+Keep doing may name lifts they should keep. Do not invent logged numbers — only suggest based on patterns.
 ${JSON_SHAPE}
 keepDoing / improve / watchOut: 2-4 short actionable bullets each.`
       : `You are a pragmatic body-recomposition coach.
 Blend nutrition adherence, workout consistency, weight trend, and the user's goalTarget (open text — e.g. lose fat, recomp, gain muscle).
 EEE burn is insight-only and is NOT added to the calorie target.
+When context.today.dayNotFinished is true or intakePartial is true, the day is still in progress: never call low logged calories a severe deficit, deficiency, or failed day. Compare to partial intake only and note more food is likely coming.
+For recentNutrition rows with dayNotFinished or intakePartial, apply the same rule — do not infer full-day deficits from morning or partial logs.
 Be specific and concise; no medical claims.
 ${JSON_SHAPE}
 keepDoing / improve / watchOut: 2-4 short actionable bullets each.`;
@@ -251,7 +322,7 @@ keepDoing / improve / watchOut: 2-4 short actionable bullets each.`;
     scope,
     instruction:
       scope === "workout"
-        ? "Advise how to improve training: lifts, progressions, aerobic volume, recovery."
+        ? "Review recent lifts vs goal. In improve, prescribe specific catalog exercises to add or swap in — not generic volume/cardio-only tips."
         : "Summarize today + recent trends; say what to keep doing and what to improve.",
     ...(userRequest
       ? {
