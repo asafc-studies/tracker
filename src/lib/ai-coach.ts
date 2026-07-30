@@ -2,7 +2,7 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { aiChatJson, extractJsonObject } from "@/lib/ai-client";
 import { EXERCISES, getExercise } from "@/lib/exercises";
-import { getMacroWarnings, sumMacros } from "@/lib/macros";
+import { sumMacros } from "@/lib/macros";
 import {
   DEFAULT_DEFICIT_KCAL,
   DEFAULT_PROTEIN_PER_KG,
@@ -58,6 +58,117 @@ function asStringList(raw: unknown, max = 5): string[] {
     .map((x) => String(x ?? "").trim())
     .filter(Boolean)
     .slice(0, max);
+}
+
+/** Collapse many sets into "Name 3×8@60" lines. */
+function compactLifts(
+  sets: Array<{ lift: string; reps: number; weightKg: number }>,
+  max = 8,
+): string[] {
+  const order: string[] = [];
+  const map = new Map<
+    string,
+    { name: string; type: string | null; sets: number; reps: number; kg: number }
+  >();
+  for (const set of sets) {
+    const ex = getExercise(set.lift);
+    if (!map.has(set.lift)) {
+      order.push(set.lift);
+      map.set(set.lift, {
+        name: ex?.name ?? set.lift.replace(/_/g, " "),
+        type: ex?.type ?? null,
+        sets: 0,
+        reps: set.reps,
+        kg: set.weightKg,
+      });
+    }
+    const row = map.get(set.lift)!;
+    row.sets += 1;
+    row.reps = set.reps;
+    row.kg = set.weightKg;
+  }
+  return order.slice(0, max).map((id) => {
+    const r = map.get(id)!;
+    if (r.type === "cardio") return r.name;
+    if (r.kg > 0) return `${r.name} ${r.sets}×${r.reps}@${r.kg}`;
+    return `${r.name} ${r.sets}×${r.reps}`;
+  });
+}
+
+function formatPlanItem(item: {
+  name: string;
+  setsCount: number;
+  reps: number;
+  weightKg: number;
+  cardio: boolean;
+  bodyweight: boolean;
+}): string {
+  if (item.cardio) return item.name;
+  if (item.bodyweight && item.weightKg <= 0) {
+    return `${item.name} ${item.setsCount}×${item.reps} BW`;
+  }
+  if (item.bodyweight) {
+    return `${item.name} ${item.setsCount}×${item.reps} BW+${item.weightKg}`;
+  }
+  return `${item.name} ${item.setsCount}×${item.reps}@${item.weightKg}`;
+}
+
+/** Small catalog hints for gaps — never send the full exercise list. */
+function catalogHintsForPlans(
+  planLiftIds: string[],
+  max = 18,
+): string[] {
+  const used = new Set(planLiftIds);
+  const covered = new Set<string>();
+  for (const id of planLiftIds) {
+    const ex = getExercise(id);
+    ex?.muscles.forEach((m) => covered.add(m));
+  }
+
+  const priorityMuscles = [
+    "rear_delts",
+    "abs",
+    "obliques",
+    "hamstrings",
+    "glutes",
+    "lats",
+    "upper_chest",
+    "side_delts",
+    "calves",
+    "triceps",
+    "biceps",
+  ];
+
+  const hints: string[] = [];
+  for (const muscle of priorityMuscles) {
+    if (hints.length >= max) break;
+    if (covered.has(muscle)) continue;
+    const candidates = EXERCISES.filter(
+      (e) =>
+        !used.has(e.id) &&
+        !["squat", "deadlift", "bench"].includes(e.id) &&
+        e.muscles.includes(muscle as never) &&
+        e.type !== "cardio",
+    ).slice(0, 2);
+    for (const e of candidates) {
+      if (hints.length >= max) break;
+      hints.push(`${e.name} (${e.group}, ${muscle})`);
+      used.add(e.id);
+    }
+  }
+
+  if (hints.length < 8) {
+    for (const e of EXERCISES) {
+      if (hints.length >= max) break;
+      if (used.has(e.id) || ["squat", "deadlift", "bench"].includes(e.id)) {
+        continue;
+      }
+      if (e.type === "cardio") continue;
+      hints.push(`${e.name} (${e.group})`);
+      used.add(e.id);
+    }
+  }
+  return hints;
 }
 
 async function loadProfileContext(userId: string) {
@@ -117,7 +228,7 @@ async function buildTodayContext(userId: string) {
 
   const recentNutrition = [...byDate.entries()]
     .sort(([a], [b]) => (a < b ? 1 : -1))
-    .slice(0, 7)
+    .slice(0, 5)
     .map(([date, foods]) => {
       const totals = sumMacros(foods);
       const isCurrentDay = date === today;
@@ -126,25 +237,18 @@ async function buildTodayContext(userId: string) {
         targets.calorieTarget,
         isCurrentDay,
       );
-      const warnings =
-        partial && isCurrentDay
-          ? []
-          : getMacroWarnings(totals, {
-              calorieTarget: targets.calorieTarget,
-              proteinG: targets.proteinG,
-              carbsG: targets.carbsG,
-              fatG: targets.fatG,
-            }).map((w) => w.title);
       return {
         date,
-        totals,
+        kcal: Math.round(totals.calories),
+        proteinG: Math.round(totals.proteinG),
+        carbsG: Math.round(totals.carbsG),
+        fatG: Math.round(totals.fatG),
         dayNotFinished: isCurrentDay,
         intakePartial: partial,
-        intakePercentOfTarget:
+        pctTarget:
           targets.calorieTarget > 0
             ? Math.round((totals.calories / targets.calorieTarget) * 100)
             : 0,
-        warnings,
       };
     });
 
@@ -171,22 +275,15 @@ async function buildTodayContext(userId: string) {
       gte(schema.weightLogs.date, since),
     ),
     orderBy: [desc(schema.weightLogs.date)],
-    limit: 10,
+    limit: 6,
   });
 
-  const recentWorkouts = sessions.slice(0, 12).map((s) => ({
+  const recentWorkouts = sessions.slice(0, 8).map((s) => ({
     date: s.date,
-    name: s.name,
-    durationMinutes: s.durationMinutes,
-    distanceKm: s.distanceKm,
-    caloriesBurned: s.caloriesBurned,
-    exercises: (s.sets ?? []).slice(0, 16).map((set) => ({
-      lift: set.lift,
-      name: getExercise(set.lift)?.name ?? set.lift,
-      type: getExercise(set.lift)?.type ?? null,
-      reps: set.reps,
-      weightKg: set.weightKg,
-    })),
+    name: s.name || "Workout",
+    min: s.durationMinutes ?? null,
+    km: s.distanceKm ?? null,
+    lifts: compactLifts(s.sets ?? [], 8),
   }));
 
   return {
@@ -214,11 +311,16 @@ async function buildTodayContext(userId: string) {
         targets.calorieTarget > 0
           ? Math.round((todayTotals.calories / targets.calorieTarget) * 100)
           : 0,
-      intake: todayTotals,
+      intake: {
+        calories: Math.round(todayTotals.calories),
+        proteinG: Math.round(todayTotals.proteinG),
+        carbsG: Math.round(todayTotals.carbsG),
+        fatG: Math.round(todayTotals.fatG),
+      },
       foodCount: todayFoods.length,
       sessions: recentWorkouts.filter((w) => w.date === today),
       nutritionNote: todayPartial
-        ? "The calendar day has not finished. Logged calories are partial — do NOT treat low intake as a severe deficit, starvation, or failed adherence. Mention that more meals are likely still ahead."
+        ? "Day not finished — partial intake only; do not call this a severe deficit."
         : "Most of today's intake appears logged.",
     },
     recentNutrition,
@@ -232,53 +334,35 @@ async function buildTodayContext(userId: string) {
 
 async function buildWorkoutContext(userId: string) {
   const base = await buildTodayContext(userId);
-  const gymish = base.recentWorkouts.filter((w) =>
-    (w.exercises ?? []).some((e) => e.type !== "cardio"),
-  );
-  const cardio = base.recentWorkouts.filter(
-    (w) =>
-      /\brun\b/i.test(String(w.name || "")) ||
-      (w.distanceKm != null && Number(w.distanceKm) > 0) ||
-      (w.exercises ?? []).some((e) => e.type === "cardio"),
-  );
-
-  const availableExercises = EXERCISES.filter(
-    (e) => !["squat", "deadlift", "bench"].includes(e.id),
-  ).map((e) => ({
-    id: e.id,
-    name: e.name,
-    place: e.group,
-    type: e.type,
-    muscles: e.muscles.slice(0, 3),
-  }));
-
   const { plans } = await listWorkoutPlans(userId);
-  const workoutPlans = plans.map((p) => ({
+
+  const planLiftIds = plans.flatMap((p) => p.items.map((i) => i.lift));
+  const workoutPlans = plans.slice(0, 8).map((p) => ({
     name: p.name,
-    exerciseCount: p.items.length,
-    exercises: p.items.map((item) => ({
-      name: item.name,
-      lift: item.lift,
-      place: item.category,
-      sets: item.setsCount,
-      reps: item.reps,
-      weightKg: item.weightKg,
-      bodyweight: item.bodyweight,
-      cardio: item.cardio,
-    })),
+    pool: p.items.slice(0, 16).map(formatPlanItem),
   }));
 
   return {
-    ...base,
-    focus: {
-      strengthSessions: gymish.slice(0, 8),
-      cardioSessions: cardio.slice(0, 8),
-      note: "Prefer naming specific catalog exercises to ADD or REPLACE. Cardio volume is secondary to lift/selection advice.",
+    goalTarget: base.goalTarget,
+    body: base.body,
+    macroTargets: {
+      calorieTarget: base.macroTargets.calorieTarget,
+      proteinG: base.macroTargets.proteinG,
+      deficit: base.macroTargets.deficit,
     },
+    todayNutrition: {
+      dayNotFinished: base.today.dayNotFinished,
+      intakePartial: base.today.intakePartial,
+      note: base.today.nutritionNote,
+      kcal: base.today.intake.calories,
+      proteinG: base.today.intake.proteinG,
+    },
+    recentWorkouts: base.recentWorkouts.slice(0, 6),
+    recentWeights: base.recentWeights.slice(0, 4),
     workoutPlans,
     workoutPlansNote:
-      "Each plan is a pool of candidate exercises the user may pick from — not a mandatory full session. Most workouts use only a subset of a plan's list. Advise on plan names, exercise mix, and planned sets/reps/weights vs their goalTarget/profile; suggest adds or swaps into specific plans from availableExercises.",
-    availableExercises,
+      "Each plan is a candidate pool — usually only a subset is used per session. Never treat a plan as one mandatory full workout.",
+    catalogHints: catalogHintsForPlans(planLiftIds, 16),
   };
 }
 
@@ -323,40 +407,38 @@ export async function coachWithAI(
   const system =
     scope === "workout"
       ? `You are a pragmatic strength & conditioning coach for body recomposition.
-Use the user's goalTarget (if set), profile body stats, recent sessions, lifts, cardio, workoutPlans, and availableExercises (catalog they can log / add to plans).
-IMPORTANT about workoutPlans: each plan is a menu of possible exercises — the user usually does NOT perform every exercise in a plan in one workout. Treat plans as selectable pools keyed by plan name; never assume the full list is one session.
-If nutrition context includes today with dayNotFinished or intakePartial, do not judge calorie deficits from partial daily intake.
-CRITICAL for "improve": do NOT stop at vague praise ("good mix") or only "do more cardio". Include concrete advice about their named plans — e.g. add/replace exercises in "Plan 1" / named plans, or adjust planned sets/reps/weights toward the goal. At least 2 improve bullets must name specific exercises from availableExercises (to add into a plan or swap for a listed one), with sets×reps (and load when relevant). Cardio tips are optional extras.
-Keep doing may name lifts or plan choices worth keeping. Do not invent logged numbers — only suggest based on patterns in context.
+Use goalTarget, body, recentWorkouts, workoutPlans, and catalogHints.
+workoutPlans are candidate pools — usually only a subset is done per session; never treat a full plan as one mandatory workout.
+If todayNutrition.intakePartial, do not judge calorie deficits from partial intake.
+improve: at least 2 bullets with concrete plan adds/swaps or set/rep/weight tweaks (name the plan + exercise). Prefer catalogHints or lifts already in plans/history. Avoid vague "good mix" / cardio-only tips.
 ${JSON_SHAPE}
-keepDoing / improve / watchOut: 2-4 short actionable bullets each.`
+2-4 short bullets each in keepDoing / improve / watchOut.`
       : `You are a pragmatic body-recomposition coach.
-Blend nutrition adherence, workout consistency, weight trend, and the user's goalTarget (open text — e.g. lose fat, recomp, gain muscle).
-EEE burn is insight-only and is NOT added to the calorie target.
-When context.today.dayNotFinished is true or intakePartial is true, the day is still in progress: never call low logged calories a severe deficit, deficiency, or failed day. Compare to partial intake only and note more food is likely coming.
-For recentNutrition rows with dayNotFinished or intakePartial, apply the same rule — do not infer full-day deficits from morning or partial logs.
+Blend nutrition adherence, workout consistency, weight trend, and goalTarget.
+EEE is insight-only, not added to the calorie target.
+If today.dayNotFinished or intakePartial (or recentNutrition.intakePartial), do not call low calories a severe deficit — the day may be unfinished.
 Be specific and concise; no medical claims.
 ${JSON_SHAPE}
-keepDoing / improve / watchOut: 2-4 short actionable bullets each.`;
+2-4 short bullets each in keepDoing / improve / watchOut.`;
 
-  const user = JSON.stringify({
+  const userPayload = {
     scope,
     instruction:
       scope === "workout"
-        ? "Review recent lifts, named workoutPlans (pools of candidates — not full sessions), and goalTarget. In improve, suggest specific plan adds/swaps and set/rep/weight tweaks — not generic volume/cardio-only tips."
-        : "Summarize today + recent trends; say what to keep doing and what to improve.",
+        ? "Advise on named plans (pools) and recent lifts vs goal. Suggest specific adds/swaps and load tweaks."
+        : "Summarize today + recent trends; keep doing / improve.",
     ...(userRequest
       ? {
-          userPriorityRequest: userRequest,
+          userPriorityRequest: userRequest.slice(0, 400),
           note: "userPriorityRequest overrides other emphasis.",
         }
       : {}),
     context,
-  });
+  };
 
   const { content, model } = await aiChatJson({
     system,
-    user,
+    user: JSON.stringify(userPayload),
     temperature: 0.5,
   });
   return parseAdvice(content, model);
