@@ -138,31 +138,35 @@ export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
         <p className="text-[10px] text-[var(--muted)]">Redder = more sets</p>
       </div>
 
-      <div className="flex items-end justify-center gap-6 sm:gap-10 overflow-x-auto">
-        <div className="flex flex-col items-center gap-2 shrink-0">
-          <Body
-            data={bodyData}
-            side="front"
-            gender="male"
-            scale={1.05}
-            colors={[...HEAT_COLORS]}
-            border="#5a5a62"
-            defaultFill="#3a3a42"
-            defaultStroke="none"
-          />
+      <div className="grid grid-cols-2 gap-1 sm:gap-3 place-items-center w-full max-w-sm mx-auto">
+        <div className="flex flex-col items-center gap-1 w-full min-w-0">
+          <div className="w-full max-w-[150px] sm:max-w-[190px] mx-auto [&_svg]:!w-full [&_svg]:!h-auto">
+            <Body
+              data={bodyData}
+              side="front"
+              gender="male"
+              scale={0.75}
+              colors={[...HEAT_COLORS]}
+              border="#5a5a62"
+              defaultFill="#3a3a42"
+              defaultStroke="none"
+            />
+          </div>
           <span className="text-[10px] text-[var(--muted)]">Front</span>
         </div>
-        <div className="flex flex-col items-center gap-2 shrink-0">
-          <Body
-            data={bodyData}
-            side="back"
-            gender="male"
-            scale={1.05}
-            colors={[...HEAT_COLORS]}
-            border="#5a5a62"
-            defaultFill="#3a3a42"
-            defaultStroke="none"
-          />
+        <div className="flex flex-col items-center gap-1 w-full min-w-0">
+          <div className="w-full max-w-[150px] sm:max-w-[190px] mx-auto [&_svg]:!w-full [&_svg]:!h-auto">
+            <Body
+              data={bodyData}
+              side="back"
+              gender="male"
+              scale={0.75}
+              colors={[...HEAT_COLORS]}
+              border="#5a5a62"
+              defaultFill="#3a3a42"
+              defaultStroke="none"
+            />
+          </div>
           <span className="text-[10px] text-[var(--muted)]">Back</span>
         </div>
       </div>

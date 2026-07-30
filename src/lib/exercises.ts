@@ -1161,6 +1161,16 @@ export const EXERCISES: ExerciseDef[] = [
     bodyweight: true,
   },
   {
+    id: "outdoor_jackknife_sit_up",
+    name: "Jack knife sit-ups",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors"],
+    bodyweight: true,
+  },
+  {
     id: "outdoor_dead_bug",
     name: "Dead bug",
     group: "outdoor",

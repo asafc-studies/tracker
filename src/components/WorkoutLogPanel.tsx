@@ -48,7 +48,7 @@ export type DaySession = {
   stats: DayLiftStats;
 };
 
-type DraftSet = { reps: number; weightKg: number };
+type DraftSet = { reps: string; weightKg: string };
 
 type Props = {
   date: string;
@@ -209,9 +209,9 @@ export function WorkoutLogPanel({
   );
   const [search, setSearch] = useState("");
   const [exerciseId, setExerciseId] = useState("barbell_bench_press");
-  const [reps, setReps] = useState(8);
-  const [weightKg, setWeightKg] = useState(0);
-  const [setsCount, setSetsCount] = useState(3);
+  const [reps, setReps] = useState("8");
+  const [weightKg, setWeightKg] = useState("0");
+  const [setsCount, setSetsCount] = useState("3");
   /** Cardio log: distance km + optional pace (min/km). */
   const [cardioDistanceKm, setCardioDistanceKm] = useState("");
   const [cardioPace, setCardioPace] = useState("");
@@ -353,29 +353,29 @@ export function WorkoutLogPanel({
     if (prior?.sets.length && !cardio) {
       setDraftSets(
         prior.sets.map((s) => ({
-          reps: s.reps,
-          weightKg: s.weightKg,
+          reps: String(s.reps),
+          weightKg: String(s.weightKg),
         })),
       );
-      setReps(prior.sets[0].reps);
-      setWeightKg(prior.sets[0].weightKg);
-      setSetsCount(prior.sets.length);
+      setReps(String(prior.sets[0].reps));
+      setWeightKg(String(prior.sets[0].weightKg));
+      setSetsCount(String(prior.sets.length));
     } else if (last && !cardio) {
       setDraftSets(null);
-      setReps(last.reps);
-      setWeightKg(last.weightKg);
-      setSetsCount(3);
+      setReps(String(last.reps));
+      setWeightKg(String(last.weightKg));
+      setSetsCount("3");
     } else if (cardio) {
       setDraftSets(null);
-      setWeightKg(0);
-      setReps(1);
-      setSetsCount(1);
+      setWeightKg("0");
+      setReps("1");
+      setSetsCount("1");
       /** Keep distance fields; don't invent a fake duration. */
     } else if (ex?.bodyweight) {
       setDraftSets(null);
-      setWeightKg(0);
-      setReps(8);
-      setSetsCount(3);
+      setWeightKg("0");
+      setReps("8");
+      setSetsCount("3");
     } else {
       setDraftSets(null);
     }
@@ -407,13 +407,16 @@ export function WorkoutLogPanel({
 
   const isBodyweight = selectedExercise?.bodyweight ?? false;
   const isCardio = selectedExercise?.type === "cardio";
+  const repsN = Number(reps);
+  const weightN = Number(weightKg);
+  const setsN = Math.max(1, Number(setsCount) || 1);
   const previewSets: DraftSet[] = isCardio
     ? []
     : draftSets
       ? draftSets
-      : Array.from({ length: setsCount }, () => ({
+      : Array.from({ length: setsN }, () => ({
           reps,
-          weightKg: weightKg,
+          weightKg,
         }));
 
   const startSession = useCallback(async () => {
@@ -730,7 +733,10 @@ export function WorkoutLogPanel({
             lift: exerciseId,
             category,
             date: target.date,
-            sets: draftSets,
+            sets: draftSets.map((s) => ({
+              reps: Math.max(1, Number(s.reps) || 1),
+              weightKg: Math.max(0, Number(s.weightKg) || 0),
+            })),
           }
         : {
             sessionId: target.id,
@@ -744,9 +750,11 @@ export function WorkoutLogPanel({
                 Number(target.durationMinutes) > 0
                 ? Math.max(1, Math.round(Number(target.durationMinutes)))
                 : 1
-              : reps,
-            weightKg: cardio ? 0 : weightKg,
-            setsCount: cardio ? 1 : setsCount,
+              : Math.max(1, Number.isFinite(repsN) ? repsN : 1),
+            weightKg: cardio
+              ? 0
+              : Math.max(0, Number.isFinite(weightN) ? weightN : 0),
+            setsCount: cardio ? 1 : setsN,
           };
     const res = await fetch("/api/lifts", {
       method: "POST",
@@ -779,7 +787,7 @@ export function WorkoutLogPanel({
         ? draftSets.length
         : cardio
           ? 1
-          : setsCount;
+          : setsN;
     setSessionMessage(
       cardio
         ? [
@@ -1511,8 +1519,8 @@ export function WorkoutLogPanel({
                 {previewSets.map((s, i) => (
                   <SetChip
                     key={i}
-                    weightKg={s.weightKg}
-                    reps={s.reps}
+                    weightKg={Number(s.weightKg) || 0}
+                    reps={Math.max(1, Number(s.reps) || 1)}
                     bodyweight={isBodyweight}
                     cardio={isCardio}
                   />
@@ -1573,7 +1581,7 @@ export function WorkoutLogPanel({
                             const next = [...draftSets];
                             next[i] = {
                               ...next[i],
-                              weightKg: Number(e.target.value),
+                              weightKg: e.target.value,
                             };
                             setDraftSets(next);
                           }}
@@ -1587,7 +1595,7 @@ export function WorkoutLogPanel({
                             const next = [...draftSets];
                             next[i] = {
                               ...next[i],
-                              reps: Number(e.target.value),
+                              reps: e.target.value,
                             };
                             setDraftSets(next);
                           }}
@@ -1623,8 +1631,9 @@ export function WorkoutLogPanel({
                         type="number"
                         step="0.5"
                         min={0}
+                        inputMode="decimal"
                         value={weightKg}
-                        onChange={(e) => setWeightKg(Number(e.target.value))}
+                        onChange={(e) => setWeightKg(e.target.value)}
                         required
                       />
                     </label>
@@ -1634,8 +1643,9 @@ export function WorkoutLogPanel({
                         className={field}
                         type="number"
                         min={1}
+                        inputMode="numeric"
                         value={reps}
-                        onChange={(e) => setReps(Number(e.target.value))}
+                        onChange={(e) => setReps(e.target.value)}
                         required
                       />
                     </label>
@@ -1646,8 +1656,9 @@ export function WorkoutLogPanel({
                         type="number"
                         min={1}
                         max={20}
+                        inputMode="numeric"
                         value={setsCount}
-                        onChange={(e) => setSetsCount(Number(e.target.value))}
+                        onChange={(e) => setSetsCount(e.target.value)}
                         required
                       />
                     </label>
@@ -1678,7 +1689,7 @@ export function WorkoutLogPanel({
                       .join(" · ")
                   : draftSets
                     ? `${draftSets.length} set${draftSets.length > 1 ? "s" : ""}`
-                    : `${setsCount} set${setsCount > 1 ? "s" : ""}`}{" "}
+                    : `${setsN} set${setsN > 1 ? "s" : ""}`}{" "}
                 to “{target.name}”
               </button>
             )}
