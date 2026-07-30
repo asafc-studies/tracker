@@ -1,8 +1,11 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { jsonError, jsonOk, requireUser } from "@/lib/api";
+import { getExercise } from "@/lib/exercises";
 import { syncProfileWeightFromLogs } from "@/lib/weight-sync";
 import {
+  caloriesBurnedSession,
+  looksLikeCardioSession,
   resolveTargets,
   todayISODate,
   type ActivityLevel,
@@ -16,6 +19,39 @@ function rangeStart(range: string): string | null {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
+}
+
+function sessionIsCardio(
+  name: string | null | undefined,
+  sets?: Array<{ lift: string }>,
+) {
+  if (looksLikeCardioSession(name)) return true;
+  return (sets ?? []).some((s) => getExercise(s.lift)?.type === "cardio");
+}
+
+function resolveSessionBurn(
+  bodyWeightKg: number | null,
+  s: {
+    name?: string | null;
+    durationMinutes?: number | null;
+    distanceKm?: number | null;
+    caloriesBurned?: number | null;
+    sets?: Array<{ lift: string }>;
+  },
+) {
+  const stored =
+    s.caloriesBurned == null ? null : Number(s.caloriesBurned);
+  if (stored != null && Number.isFinite(stored) && stored > 0) return stored;
+  const duration =
+    s.durationMinutes != null && Number(s.durationMinutes) > 0
+      ? Number(s.durationMinutes)
+      : null;
+  if (!bodyWeightKg || duration == null) return null;
+  return caloriesBurnedSession(bodyWeightKg, duration, {
+    distanceKm: s.distanceKm,
+    sessionName: s.name,
+    cardio: sessionIsCardio(s.name, s.sets),
+  });
 }
 
 export async function GET(req: Request) {
@@ -114,6 +150,14 @@ export async function GET(req: Request) {
     with: { sets: true },
   });
 
+  const profile = await db.query.profiles.findFirst({
+    where: eq(schema.profiles.userId, authz.userId),
+  });
+  const weightLogs = await db.query.weightLogs.findMany({
+    where: eq(schema.weightLogs.userId, authz.userId),
+  });
+  const weightByDate = new Map(weightLogs.map((w) => [w.date, w.weightKg]));
+
   const byDate: Record<
     string,
     {
@@ -125,7 +169,26 @@ export async function GET(req: Request) {
     }
   > = {};
 
+  const sessionsWithBurn = [];
   for (const s of sessions) {
+    const bodyWeightKg =
+      weightByDate.get(s.date) ?? profile?.weightKg ?? null;
+    const caloriesBurned = resolveSessionBurn(bodyWeightKg, s);
+    /** Backfill wiped cache so future reads stay cheap. */
+    if (
+      caloriesBurned != null &&
+      caloriesBurned > 0 &&
+      (s.caloriesBurned == null || Number(s.caloriesBurned) <= 0) &&
+      s.durationMinutes != null &&
+      Number(s.durationMinutes) > 0
+    ) {
+      await db
+        .update(schema.workoutSessions)
+        .set({ caloriesBurned })
+        .where(eq(schema.workoutSessions.id, s.id));
+    }
+    sessionsWithBurn.push({ ...s, caloriesBurned });
+
     if (!byDate[s.date]) {
       byDate[s.date] = {
         date: s.date,
@@ -139,7 +202,7 @@ export async function GET(req: Request) {
     byDate[s.date].setCount += s.sets.length;
     if (s.durationMinutes && s.durationMinutes > 0) {
       byDate[s.date].durationMinutes += s.durationMinutes;
-      byDate[s.date].caloriesBurned += s.caloriesBurned ?? 0;
+      byDate[s.date].caloriesBurned += caloriesBurned ?? 0;
     }
   }
 
@@ -147,7 +210,7 @@ export async function GET(req: Request) {
     .filter((d) => d.caloriesBurned > 0 || d.setCount > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const recent = [...sessions].reverse().slice(0, 20);
+  const recent = [...sessionsWithBurn].reverse().slice(0, 20);
 
   return jsonOk({ tab: "eee", range, series, sessions: recent });
 }

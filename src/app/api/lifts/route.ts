@@ -164,6 +164,17 @@ function serializeSession(
     durationMinutes > 0;
   /** In progress only when started, not ended, and duration not yet locked. */
   const inProgress = startedAt != null && endedAt == null && !hasDuration;
+  const storedBurn =
+    s.caloriesBurned == null ? null : Number(s.caloriesBurned);
+  /** Recompute when duration exists but cached burn was wiped (e.g. set delete). */
+  const caloriesBurned =
+    storedBurn != null && Number.isFinite(storedBurn) && storedBurn > 0
+      ? storedBurn
+      : eeeForSession(bodyWeightKg, durationMinutes, {
+          name: s.name,
+          distanceKm,
+          sets: s.sets,
+        });
   return {
     id: s.id,
     date: s.date,
@@ -177,8 +188,7 @@ function serializeSession(
       : null,
     distanceKm:
       distanceKm != null && Number.isFinite(distanceKm) ? distanceKm : null,
-    caloriesBurned:
-      s.caloriesBurned == null ? null : Number(s.caloriesBurned),
+    caloriesBurned,
     createdAt: toMs(s.createdAt),
     groups: groupSetsByExercise(s.sets ?? []),
     stats: computeDayStats(s.sets ?? [], bodyWeightKg),
@@ -332,16 +342,15 @@ export async function GET(req: Request) {
     ),
   };
 
-  const totalEee = daySessions.reduce(
+  const sessions = daySessions.map((s) => serializeSession(s, bodyWeightKg));
+  const totalEee = sessions.reduce(
     (sum, s) => sum + (s.caloriesBurned ?? 0),
     0,
   );
-  const totalDuration = daySessions.reduce(
+  const totalDuration = sessions.reduce(
     (sum, s) => sum + (s.durationMinutes ?? 0),
     0,
   );
-
-  const sessions = daySessions.map((s) => serializeSession(s, bodyWeightKg));
 
   const inProgressRaw = await findInProgressSession(db, authz.userId);
   const inProgressSession = inProgressRaw
@@ -357,21 +366,21 @@ export async function GET(req: Request) {
         s.startedAt != null,
     )
     .slice(0, 15)
-    .map((s) => ({
-      date: s.date,
-      sessionId: s.id,
-      name: s.name?.trim() || "Workout",
-      durationMinutes: s.durationMinutes,
-      caloriesBurned: s.caloriesBurned,
-      startedAt: toMs(s.startedAt),
-      endedAt: toMs(s.endedAt),
-      inProgress:
-        toMs(s.startedAt) != null &&
-        toMs(s.endedAt) == null &&
-        !(s.durationMinutes != null && Number(s.durationMinutes) > 0),
-      groups: groupSetsByExercise(s.sets),
-      stats: computeDayStats(s.sets, bodyWeightKg),
-    }));
+    .map((s) => {
+      const serialized = serializeSession(s, bodyWeightKg);
+      return {
+        date: serialized.date,
+        sessionId: serialized.id,
+        name: serialized.name,
+        durationMinutes: serialized.durationMinutes,
+        caloriesBurned: serialized.caloriesBurned,
+        startedAt: serialized.startedAt,
+        endedAt: serialized.endedAt,
+        inProgress: serialized.inProgress,
+        groups: serialized.groups,
+        stats: serialized.stats,
+      };
+    });
 
   return jsonOk({
     date,
@@ -816,14 +825,35 @@ async function clearDistanceIfNoCardio(
   db: Awaited<ReturnType<typeof getDb>>,
   sessionId: string,
 ) {
-  const sets = await db.query.liftSets.findMany({
-    where: eq(schema.liftSets.sessionId, sessionId),
+  const session = await db.query.workoutSessions.findFirst({
+    where: eq(schema.workoutSessions.id, sessionId),
+    with: { sets: true },
   });
+  if (!session) return;
+  const sets = session.sets ?? [];
   const hasCardio = sets.some((s) => getExercise(s.lift)?.type === "cardio");
   if (hasCardio) return;
+
+  const { bodyWeightKg } = await resolveBodyWeight(
+    db,
+    session.userId,
+    session.date,
+  );
+  const durationMinutes =
+    session.durationMinutes != null && Number(session.durationMinutes) > 0
+      ? Number(session.durationMinutes)
+      : null;
+  /** Drop run distance only; keep EEE from remaining resistance work. */
   await db
     .update(schema.workoutSessions)
-    .set({ distanceKm: null, caloriesBurned: null })
+    .set({
+      distanceKm: null,
+      caloriesBurned: eeeForSession(bodyWeightKg, durationMinutes, {
+        name: session.name,
+        distanceKm: null,
+        sets,
+      }),
+    })
     .where(eq(schema.workoutSessions.id, sessionId));
 }
 

@@ -451,7 +451,9 @@ export function HistoryPage() {
                     <span className="text-[var(--muted)] text-xs text-right">
                       {session.caloriesBurned
                         ? `${Math.round(session.caloriesBurned)} kcal`
-                        : "no duration"}
+                        : session.durationMinutes
+                          ? `${Math.round(session.durationMinutes)} min · no EEE`
+                          : "no duration"}
                       {" · "}
                       {session.sets.length} sets
                     </span>
