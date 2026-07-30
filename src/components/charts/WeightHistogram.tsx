@@ -56,15 +56,24 @@ export function WeightHistogram({
             tickFormatter={(v) => String(v)}
           />
           <Tooltip
+            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
               borderRadius: 8,
+              color: "#e8e8e8",
             }}
+            labelStyle={{ color: "#a3a3a3" }}
+            itemStyle={{ color: "#e8e8e8" }}
             formatter={(value) => [`${value} kg`, "Weight"]}
             labelFormatter={(label) => label}
           />
-          <Bar dataKey="weightKg" radius={[4, 4, 0, 0]} maxBarSize={28}>
+          <Bar
+            dataKey="weightKg"
+            radius={[4, 4, 0, 0]}
+            maxBarSize={28}
+            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
+          >
             {data.map((entry) => (
               <Cell
                 key={entry.date}
