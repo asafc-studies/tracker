@@ -928,7 +928,8 @@ export const EXERCISES: ExerciseDef[] = [
   {
     id: "rucking",
     name: "Rucking (weighted backpack)",
-    group: "outdoor",    equipment: "Backpack + load",
+    group: "outdoor",
+    equipment: "Backpack + load",
     type: "carry",
     bodyRegions: ["legs", "back", "core"],
     muscles: ["quads", "glutes", "lower_back", "abs"],
@@ -1045,6 +1046,130 @@ export const EXERCISES: ExerciseDef[] = [
     muscles: ["pectorals", "triceps"],
     bodyweight: true,
   },
+  // —— OUTDOOR ABS / CORE ——
+  {
+    id: "outdoor_crunch",
+    name: "Crunches",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_sit_up",
+    name: "Sit-ups",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_leg_raise",
+    name: "Lying leg raise",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_plank",
+    name: "Outdoor plank",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "obliques"],
+    bodyweight: true,
+    tip: "Log duration as reps (seconds)",
+  },
+  {
+    id: "outdoor_side_plank",
+    name: "Side plank",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["obliques", "abs"],
+    bodyweight: true,
+    tip: "Log duration as reps (seconds) per side",
+  },
+  {
+    id: "outdoor_russian_twist",
+    name: "Russian twist",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["obliques", "abs"],
+    bodyweight: true,
+    tip: "Add a rock or bottle for load",
+  },
+  {
+    id: "outdoor_bicycle_crunch",
+    name: "Bicycle crunch",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "obliques"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_mountain_climber",
+    name: "Mountain climbers",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "plyometric",
+    bodyRegions: ["core", "cardio"],
+    muscles: ["abs", "hip_flexors", "cardiovascular"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_hanging_knee_raise",
+    name: "Hanging knee raise (park bar)",
+    group: "outdoor",
+    equipment: "Calisthenics park bar",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_toes_to_bar",
+    name: "Toes-to-bar",
+    group: "outdoor",
+    equipment: "Calisthenics park bar",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors", "lats"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_v_up",
+    name: "V-ups",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs", "hip_flexors"],
+    bodyweight: true,
+  },
+  {
+    id: "outdoor_dead_bug",
+    name: "Dead bug",
+    group: "outdoor",
+    equipment: "Floor / grass",
+    type: "isolation",
+    bodyRegions: ["core"],
+    muscles: ["abs"],
+    bodyweight: true,
+  },
 ];
 
 const exerciseMap = new Map(EXERCISES.map((e) => [e.id, e]));
@@ -1057,9 +1182,18 @@ export function getExercisesByGroup(group: ExerciseGroup): ExerciseDef[] {
   return EXERCISES.filter((e) => e.group === group);
 }
 
-export function searchExercises(query: string, group?: ExerciseGroup): ExerciseDef[] {
+export function searchExercises(
+  query: string,
+  groups?: ExerciseGroup | ExerciseGroup[],
+): ExerciseDef[] {
   const q = query.trim().toLowerCase();
-  let list = group ? getExercisesByGroup(group) : EXERCISES;
+  const allowed =
+    groups == null
+      ? null
+      : new Set(Array.isArray(groups) ? groups : [groups]);
+  const list = allowed
+    ? EXERCISES.filter((e) => allowed.has(e.group))
+    : EXERCISES;
   if (!q) return list;
   return list.filter(
     (e) =>

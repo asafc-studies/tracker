@@ -703,6 +703,7 @@ export function ExercisesPage() {
           />
           <BodyHeatmap
             regionCounts={regionCounts}
+            muscles={muscleSummary}
             dateLabel={todayFriendly(date)}
           />
         </div>

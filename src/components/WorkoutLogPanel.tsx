@@ -12,10 +12,11 @@ import {
   type DayLiftStats,
   type ExerciseGroup,
   formatSetWeight,
-  getExercisesByGroup,
   isCardioExercise,
   searchExercises,
 } from "@/lib/exercises";
+
+const ALL_GROUPS = Object.keys(EXERCISE_GROUPS) as ExerciseGroup[];
 
 type SetRow = {
   id: string;
@@ -203,7 +204,9 @@ export function WorkoutLogPanel({
     null,
   );
 
-  const [group, setGroup] = useState<ExerciseGroup>("gym");
+  const [enabledGroups, setEnabledGroups] = useState<Set<ExerciseGroup>>(
+    () => new Set(ALL_GROUPS),
+  );
   const [search, setSearch] = useState("");
   const [exerciseId, setExerciseId] = useState("barbell_bench_press");
   const [reps, setReps] = useState(8);
@@ -311,25 +314,36 @@ export function WorkoutLogPanel({
   const elapsedMs =
     running && anchorMs != null ? Math.max(0, now - anchorMs) : 0;
 
+  const activeGroups = useMemo(
+    () => ALL_GROUPS.filter((g) => enabledGroups.has(g)),
+    [enabledGroups],
+  );
+
   const filteredExercises = useMemo(() => {
-    if (search.trim()) return searchExercises(search, group);
-    return getExercisesByGroup(group);
-  }, [group, search]);
+    if (activeGroups.length === 0) return [];
+    return searchExercises(search, activeGroups);
+  }, [activeGroups, search]);
 
   const selectedExercise = useMemo(
     () =>
       filteredExercises.find((e) => e.id === exerciseId) ??
-      getExercisesByGroup(group).find((e) => e.id === exerciseId),
-    [exerciseId, group, filteredExercises],
+      searchExercises("", activeGroups).find((e) => e.id === exerciseId),
+    [exerciseId, activeGroups, filteredExercises],
   );
 
   useEffect(() => {
-    const list = getExercisesByGroup(group);
-    if (!list.some((e) => e.id === exerciseId)) {
-      setExerciseId(list[0]?.id ?? "barbell_bench_press");
-    }
-    setSearch("");
-  }, [group, exerciseId]);
+    if (filteredExercises.some((e) => e.id === exerciseId)) return;
+    setExerciseId(filteredExercises[0]?.id ?? "");
+  }, [filteredExercises, exerciseId]);
+
+  function toggleGroup(g: ExerciseGroup) {
+    setEnabledGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const last = lastByLift[exerciseId];
@@ -708,19 +722,20 @@ export function WorkoutLogPanel({
       }
       distanceKm = distanceKmRaw;
     }
+    const category = selectedExercise?.group ?? "gym";
     const payload =
       draftSets && draftSets.length > 0 && !cardio
         ? {
             sessionId: target.id,
             lift: exerciseId,
-            category: group,
+            category,
             date: target.date,
             sets: draftSets,
           }
         : {
             sessionId: target.id,
             lift: exerciseId,
-            category: group,
+            category,
             date: target.date,
             /** Cardio: placeholder until Stop; if session already finished, use its duration. */
             reps: cardio
@@ -1425,47 +1440,59 @@ export function WorkoutLogPanel({
         </p>
 
         <div className="flex flex-wrap gap-2">
-          {(Object.keys(EXERCISE_GROUPS) as ExerciseGroup[]).map((g) => (
-            <button
-              key={g}
-              type="button"
-              onClick={() => setGroup(g)}
-              className={`px-3 py-1.5 rounded-full text-xs border transition-colors min-h-[36px] ${
-                group === g
-                  ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-soft)]"
-                  : "border-[var(--border)] text-[var(--muted)]"
-              }`}
-            >
-              {EXERCISE_GROUPS[g].label}
-            </button>
-          ))}
+          {(Object.keys(EXERCISE_GROUPS) as ExerciseGroup[]).map((g) => {
+            const on = enabledGroups.has(g);
+            return (
+              <button
+                key={g}
+                type="button"
+                onClick={() => toggleGroup(g)}
+                aria-pressed={on}
+                className={`px-3 py-1.5 rounded-full text-xs border transition-colors min-h-[36px] ${
+                  on
+                    ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-soft)]"
+                    : "border-[#2a2a2e] bg-[#141416] text-[#6a6a72]"
+                }`}
+              >
+                {EXERCISE_GROUPS[g].label}
+              </button>
+            );
+          })}
         </div>
 
         <input
           className={field}
-          placeholder="Search exercise or equipment…"
+          placeholder="Search all exercises or equipment…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] p-2 bg-[var(--surface)]">
-          {filteredExercises.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              onClick={() => setExerciseId(ex.id)}
-              className={`text-left rounded-md px-3 py-2 text-sm transition-colors min-h-[44px] ${
-                exerciseId === ex.id
-                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                  : "hover:bg-[var(--surface-2)]"
-              }`}
-            >
-              <span className="font-medium block truncate">{ex.name}</span>
-              <span className="text-xs text-[var(--muted)] truncate block">
-                {ex.equipment}
-              </span>
-            </button>
-          ))}
+          {filteredExercises.length === 0 ? (
+            <p className="col-span-full text-sm text-[var(--muted)] px-2 py-3 text-center">
+              {activeGroups.length === 0
+                ? "Turn on at least one place to browse exercises"
+                : "No exercises match"}
+            </p>
+          ) : (
+            filteredExercises.map((ex) => (
+              <button
+                key={ex.id}
+                type="button"
+                onClick={() => setExerciseId(ex.id)}
+                className={`text-left rounded-md px-3 py-2 text-sm transition-colors min-h-[44px] ${
+                  exerciseId === ex.id
+                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "hover:bg-[var(--surface-2)]"
+                }`}
+              >
+                <span className="font-medium block truncate">{ex.name}</span>
+                <span className="text-xs text-[var(--muted)] truncate block">
+                  {EXERCISE_GROUPS[ex.group].label} · {ex.equipment}
+                </span>
+              </button>
+            ))
+          )}
         </div>
 
         <div className="rounded-lg border border-[var(--border)] overflow-hidden">
