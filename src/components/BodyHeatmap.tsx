@@ -11,12 +11,19 @@ import {
   type BodyRegion,
   type MuscleGroup,
 } from "@/lib/exercises";
+import type { HeatMode } from "@/lib/muscle-tonnage";
 
-type MuscleRow = { muscle: MuscleGroup; sets: number; label: string };
+type MuscleRow = {
+  muscle: MuscleGroup;
+  label: string;
+  value: number;
+  intensity: number;
+};
 
 type Props = {
-  regionCounts: Partial<Record<BodyRegion, number>>;
-  muscles?: MuscleRow[];
+  mode: HeatMode;
+  muscles: MuscleRow[];
+  regionCounts?: Partial<Record<BodyRegion, number>>;
   dateLabel?: string;
 };
 
@@ -43,17 +50,6 @@ const MUSCLE_TO_SLUG: Partial<Record<MuscleGroup, Slug[]>> = {
   hip_flexors: ["adductors"],
 };
 
-const REGION_TO_SLUG: Partial<Record<BodyRegion, Slug[]>> = {
-  chest: ["chest"],
-  back: ["upper-back", "lower-back", "trapezius"],
-  shoulders: ["deltoids"],
-  arms: ["biceps", "triceps", "forearm"],
-  legs: ["quadriceps", "hamstring", "calves"],
-  glutes: ["gluteal"],
-  core: ["abs", "obliques"],
-  full_body: ["chest", "upper-back", "quadriceps", "abs", "deltoids"],
-};
-
 const HEAT_COLORS = ["#c45c3e", "#e07050", "#f09070"] as const;
 
 function heatColor(intensity: number): string {
@@ -65,50 +61,34 @@ function heatColor(intensity: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function slugCountsFromMuscles(
-  muscles: MuscleRow[],
-): Map<Slug, number> {
-  const counts = new Map<Slug, number>();
-  for (const { muscle, sets } of muscles) {
-    for (const slug of MUSCLE_TO_SLUG[muscle] ?? []) {
-      counts.set(slug, (counts.get(slug) ?? 0) + sets);
-    }
+function formatValue(mode: HeatMode, value: number): string {
+  if (mode === "sets") {
+    return `${Math.round(value)} set${Math.round(value) === 1 ? "" : "s"}`;
   }
-  return counts;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}t`;
+  return `${Math.round(value)} kg`;
 }
 
-function slugCountsFromRegions(
-  regionCounts: Partial<Record<BodyRegion, number>>,
-): Map<Slug, number> {
-  const counts = new Map<Slug, number>();
-  for (const [region, n] of Object.entries(regionCounts) as [
-    BodyRegion,
-    number,
-  ][]) {
-    if (!n) continue;
-    for (const slug of REGION_TO_SLUG[region] ?? []) {
-      counts.set(slug, (counts.get(slug) ?? 0) + n);
+export function BodyHeatmap({
+  mode,
+  muscles,
+  regionCounts = {},
+  dateLabel,
+}: Props) {
+  const slugIntensity = useMemo(() => {
+    const map = new Map<Slug, number>();
+    for (const row of muscles) {
+      for (const slug of MUSCLE_TO_SLUG[row.muscle] ?? []) {
+        map.set(slug, Math.max(map.get(slug) ?? 0, row.intensity));
+      }
     }
-  }
-  return counts;
-}
-
-export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
-  const slugCounts = useMemo(() => {
-    if (muscles && muscles.length > 0) return slugCountsFromMuscles(muscles);
-    return slugCountsFromRegions(regionCounts);
-  }, [muscles, regionCounts]);
-
-  const max = useMemo(
-    () => Math.max(1, ...slugCounts.values(), 0),
-    [slugCounts],
-  );
+    return map;
+  }, [muscles]);
 
   const bodyData = useMemo((): ExtendedBodyPart[] => {
     const parts: ExtendedBodyPart[] = [];
-    for (const [slug, n] of slugCounts) {
-      if (n <= 0) continue;
-      const t = Math.min(1, n / max);
+    for (const [slug, t] of slugIntensity) {
+      if (t <= 0) continue;
       parts.push({
         slug,
         intensity: t > 0.66 ? 3 : t > 0.33 ? 2 : 1,
@@ -116,7 +96,11 @@ export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
       });
     }
     return parts;
-  }, [slugCounts, max]);
+  }, [slugIntensity]);
+
+  const topMuscles = muscles
+    .filter((m) => m.muscle !== "cardiovascular")
+    .slice(0, 6);
 
   const activeRegions = (
     Object.entries(regionCounts) as [BodyRegion, number][]
@@ -124,10 +108,7 @@ export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
 
-  const topMuscles = (muscles ?? [])
-    .filter((m) => m.muscle !== "cardiovascular")
-    .slice(0, 6);
-  const muscleMax = Math.max(1, ...topMuscles.map((m) => m.sets), 0);
+  const regionMax = Math.max(1, ...activeRegions.map(([, n]) => n), 0);
 
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4">
@@ -135,7 +116,11 @@ export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
         <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
           Worked {dateLabel ?? "today"}
         </p>
-        <p className="text-[10px] text-[var(--muted)]">Redder = more sets</p>
+        <p className="text-[10px] text-[var(--muted)]">
+          {mode === "sets"
+            ? "Redder = more sets"
+            : "Redder = more load vs your recent max"}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-1 sm:gap-3 place-items-center w-full max-w-sm mx-auto">
@@ -172,40 +157,38 @@ export function BodyHeatmap({ regionCounts, muscles, dateLabel }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-2 justify-center">
-        {topMuscles.length > 0
-          ? topMuscles.map((m) => {
-              const t = m.sets / muscleMax;
-              return (
-                <span
-                  key={m.muscle}
-                  className="rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{
-                    background: heatColor(t),
-                    color: t > 0.45 ? "#fff" : "var(--foreground)",
-                  }}
-                >
-                  {m.label || MUSCLE_LABELS[m.muscle]} · {m.sets}
-                </span>
-              );
-            })
-          : activeRegions.length === 0
-            ? (
-              <span className="text-sm text-[var(--muted)]">
-                No muscles logged for this day
-              </span>
-            )
-            : activeRegions.map(([r, n]) => (
-                <span
-                  key={r}
-                  className="rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{
-                    background: heatColor(n / max),
-                    color: n / max > 0.45 ? "#fff" : "var(--foreground)",
-                  }}
-                >
-                  {BODY_REGION_LABELS[r]} · {n}
-                </span>
-              ))}
+        {topMuscles.length > 0 ? (
+          topMuscles.map((m) => (
+            <span
+              key={m.muscle}
+              className="rounded-full px-2.5 py-1 text-xs font-medium"
+              style={{
+                background: heatColor(m.intensity),
+                color: m.intensity > 0.45 ? "#fff" : "var(--foreground)",
+              }}
+            >
+              {m.label || MUSCLE_LABELS[m.muscle]} ·{" "}
+              {formatValue(mode, m.value)}
+            </span>
+          ))
+        ) : activeRegions.length === 0 ? (
+          <span className="text-sm text-[var(--muted)]">
+            No muscles logged for this day
+          </span>
+        ) : (
+          activeRegions.map(([r, n]) => (
+            <span
+              key={r}
+              className="rounded-full px-2.5 py-1 text-xs font-medium"
+              style={{
+                background: heatColor(n / regionMax),
+                color: n / regionMax > 0.45 ? "#fff" : "var(--foreground)",
+              }}
+            >
+              {BODY_REGION_LABELS[r]} · {formatValue(mode, n)}
+            </span>
+          ))
+        )}
       </div>
     </div>
   );

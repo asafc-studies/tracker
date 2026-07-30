@@ -26,12 +26,15 @@ import {
   type MuscleGroup,
   type DayLiftStats,
 } from "@/lib/exercises";
+import type { HeatMode, MuscleHeatRow } from "@/lib/muscle-tonnage";
 import {
   invalidateAfterLifts,
   invalidateAfterWeight,
 } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
+
+const HEAT_MODE_KEY = "recomp.muscleHeatMode";
 
 type Grouped = {
   lift: string;
@@ -75,7 +78,12 @@ type LiftsPayload = {
   lastByLift?: Record<string, { weightKg: number; reps: number; date: string }>;
   lastSessionByLift?: Record<string, LastSession>;
   muscleSummary?: Array<{ muscle: MuscleGroup; sets: number; label: string }>;
+  muscleHeat?: { sets: MuscleHeatRow[]; tonnage: MuscleHeatRow[] };
   regionCounts?: Partial<Record<BodyRegion, number>>;
+  regionHeat?: {
+    sets: Partial<Record<BodyRegion, number>>;
+    tonnage: Partial<Record<BodyRegion, number>>;
+  };
   stats?: DayLiftStats | null;
   funny?: string[];
   recentGrouped?: RecentDay[];
@@ -126,6 +134,7 @@ export function ExercisesPage() {
     normalizePanel(searchParams.get("panel")),
   );
   const [date, setDate] = useState(initialDate);
+  const [heatMode, setHeatMode] = useState<HeatMode>("tonnage");
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null);
   const [weightInput, setWeightInput] = useState("");
   const [weightDirty, setWeightDirty] = useState(false);
@@ -151,6 +160,24 @@ export function ExercisesPage() {
     setPanel(normalizePanel(searchParams.get("panel")));
   }, [searchParams]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(HEAT_MODE_KEY);
+      if (raw === "sets" || raw === "tonnage") setHeatMode(raw);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function changeHeatMode(mode: HeatMode) {
+    setHeatMode(mode);
+    try {
+      window.localStorage.setItem(HEAT_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
   const liftsQuery = useQuery({
     queryKey: queryKeys.lifts(date),
     queryFn: () =>
@@ -172,7 +199,9 @@ export function ExercisesPage() {
   const lastByLift = lifts?.lastByLift ?? {};
   const lastSessionByLift = lifts?.lastSessionByLift ?? {};
   const muscleSummary = lifts?.muscleSummary ?? [];
+  const muscleHeat = lifts?.muscleHeat;
   const regionCounts = lifts?.regionCounts ?? {};
+  const regionHeat = lifts?.regionHeat;
   const stats = lifts?.stats ?? null;
   const funny = lifts?.funny ?? [];
   const recentGrouped = lifts?.recentGrouped ?? [];
@@ -692,20 +721,76 @@ export function ExercisesPage() {
       {panel === "weight" ? weightPanel : null}
       {panel === "muscles" ? (
         <div className="space-y-4">
-          <MuscleMap
-            title={`Muscles · ${todayFriendly(date)}`}
-            regions={
-              Object.entries(regionCounts)
-                .filter(([, n]) => (n ?? 0) > 0)
-                .map(([r]) => r as BodyRegion)
-            }
-            muscles={muscleSummary}
-          />
-          <BodyHeatmap
-            regionCounts={regionCounts}
-            muscles={muscleSummary}
-            dateLabel={todayFriendly(date)}
-          />
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["tonnage", "Tonnage"],
+                ["sets", "Sets"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => changeHeatMode(id)}
+                className={`px-3 py-1.5 rounded-full text-xs border transition-colors min-h-[36px] ${
+                  heatMode === id
+                    ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-soft)]"
+                    : "border-[var(--border)] text-[var(--muted)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {(() => {
+            const heatRows =
+              heatMode === "tonnage"
+                ? (muscleHeat?.tonnage ?? [])
+                : (muscleHeat?.sets ??
+                  muscleSummary.map((m) => ({
+                    muscle: m.muscle,
+                    label: m.label,
+                    value: m.sets,
+                    intensity: 0,
+                  })));
+            const maxLegacy = Math.max(
+              1,
+              ...heatRows.map((m) => m.value),
+              0,
+            );
+            const rows =
+              muscleHeat != null
+                ? heatRows
+                : heatRows.map((m) => ({
+                    ...m,
+                    intensity: m.value / maxLegacy,
+                  }));
+            const regions =
+              (heatMode === "tonnage"
+                ? regionHeat?.tonnage
+                : regionHeat?.sets) ?? regionCounts;
+            const activeRegions = (
+              Object.entries(regions) as [BodyRegion, number][]
+            )
+              .filter(([, n]) => (n ?? 0) > 0)
+              .map(([r]) => r);
+            return (
+              <>
+                <MuscleMap
+                  mode={heatMode}
+                  title={`Muscles · ${todayFriendly(date)}`}
+                  regions={activeRegions}
+                  muscles={rows}
+                />
+                <BodyHeatmap
+                  mode={heatMode}
+                  muscles={rows}
+                  regionCounts={regions}
+                  dateLabel={todayFriendly(date)}
+                />
+              </>
+            );
+          })()}
         </div>
       ) : null}
       {panel === "log" ? (

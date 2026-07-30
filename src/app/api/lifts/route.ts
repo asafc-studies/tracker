@@ -14,6 +14,11 @@ import {
   type ExerciseGroup,
 } from "@/lib/exercises";
 import {
+  buildMuscleHeat,
+  regionLoadsFromMuscles,
+  dayMuscleLoads,
+} from "@/lib/muscle-tonnage";
+import {
   caloriesBurnedSession,
   looksLikeCardioSession,
   todayISODate,
@@ -301,6 +306,32 @@ export async function GET(req: Request) {
   const regionCounts = summarizeRegionCounts(exerciseIds);
   const stats = computeDayStats(allSets, bodyWeightKg);
 
+  const sessionPayload = (s: (typeof daySessions)[number]) => ({
+    date: s.date,
+    durationMinutes: s.durationMinutes,
+    distanceKm: s.distanceKm,
+    sets: s.sets.map((set) => ({
+      lift: set.lift,
+      reps: set.reps,
+      weightKg: set.weightKg,
+    })),
+  });
+  const dayHeatSessions = daySessions.map(sessionPayload);
+  const histHeatSessions = recentSessions.map(sessionPayload);
+  const muscleHeat = buildMuscleHeat(
+    dayHeatSessions,
+    histHeatSessions,
+    bodyWeightKg,
+  );
+  const regionHeat = {
+    sets: regionLoadsFromMuscles(
+      dayMuscleLoads(dayHeatSessions, bodyWeightKg, "sets"),
+    ),
+    tonnage: regionLoadsFromMuscles(
+      dayMuscleLoads(dayHeatSessions, bodyWeightKg, "tonnage"),
+    ),
+  };
+
   const totalEee = daySessions.reduce(
     (sum, s) => sum + (s.caloriesBurned ?? 0),
     0,
@@ -356,8 +387,10 @@ export async function GET(req: Request) {
     lastByLift,
     lastSessionByLift,
     muscleSummary,
+    muscleHeat,
     regionSummary,
     regionCounts,
+    regionHeat,
     stats,
     eee: {
       durationMinutes: totalDuration || null,
