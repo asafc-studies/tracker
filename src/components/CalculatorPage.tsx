@@ -42,11 +42,11 @@ type ProfilePayload = {
 
 export function CalculatorPage() {
   const queryClient = useQueryClient();
-  const [weightKg, setWeightKg] = useState(80);
-  const [heightCm, setHeightCm] = useState(178);
-  const [age, setAge] = useState(30);
+  const [weightKg, setWeightKg] = useState("80");
+  const [heightCm, setHeightCm] = useState("178");
+  const [age, setAge] = useState("30");
   const [sex, setSex] = useState<Sex>("male");
-  const [bodyFatPercent, setBodyFatPercent] = useState(15);
+  const [bodyFatPercent, setBodyFatPercent] = useState("15");
   const [activityLevel, setActivityLevel] =
     useState<ActivityLevel>("moderate");
   const [goalTarget, setGoalTarget] = useState("");
@@ -64,12 +64,12 @@ export function CalculatorPage() {
     const data = profileQuery.data;
     if (!data || hydrated) return;
     if (data.profile) {
-      if (data.profile.weightKg) setWeightKg(data.profile.weightKg);
-      if (data.profile.heightCm) setHeightCm(data.profile.heightCm);
-      if (data.profile.age) setAge(data.profile.age);
+      if (data.profile.weightKg) setWeightKg(String(data.profile.weightKg));
+      if (data.profile.heightCm) setHeightCm(String(data.profile.heightCm));
+      if (data.profile.age) setAge(String(data.profile.age));
       if (data.profile.sex) setSex(data.profile.sex);
       if (data.profile.bodyFatPercent != null) {
-        setBodyFatPercent(data.profile.bodyFatPercent);
+        setBodyFatPercent(String(data.profile.bodyFatPercent));
       }
       if (data.profile.activityLevel) {
         const a = data.profile.activityLevel as ActivityLevel;
@@ -85,15 +85,39 @@ export function CalculatorPage() {
     e.preventDefault();
     setSaving(true);
     setMessage("");
+    const weight = Number(weightKg);
+    const height = Number(heightCm);
+    const ageN = Number(age);
+    const bf = Number(bodyFatPercent);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setMessage("Enter a valid weight");
+      setSaving(false);
+      return;
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+      setMessage("Enter a valid height");
+      setSaving(false);
+      return;
+    }
+    if (!Number.isFinite(ageN) || ageN <= 0) {
+      setMessage("Enter a valid age");
+      setSaving(false);
+      return;
+    }
+    if (!Number.isFinite(bf) || bf < 3 || bf > 60) {
+      setMessage("Body fat % must be between 3 and 60");
+      setSaving(false);
+      return;
+    }
     try {
       const data = await apiFetch<ProfilePayload>("/api/profile", {
         method: "PUT",
         body: JSON.stringify({
-          weightKg,
-          heightCm,
-          age,
+          weightKg: weight,
+          heightCm: height,
+          age: ageN,
           sex,
-          bodyFatPercent,
+          bodyFatPercent: bf,
           activityLevel,
           deficitKcal: DEFAULT_DEFICIT_KCAL,
           proteinPerKg: DEFAULT_PROTEIN_PER_KG,
@@ -126,9 +150,10 @@ export function CalculatorPage() {
             <input
               className={field}
               type="number"
+              inputMode="decimal"
               step="0.1"
               value={weightKg}
-              onChange={(e) => setWeightKg(Number(e.target.value))}
+              onChange={(e) => setWeightKg(e.target.value)}
               required
             />
           </label>
@@ -139,11 +164,12 @@ export function CalculatorPage() {
             <input
               className={field}
               type="number"
+              inputMode="decimal"
               step="0.1"
               min={3}
               max={60}
               value={bodyFatPercent}
-              onChange={(e) => setBodyFatPercent(Number(e.target.value))}
+              onChange={(e) => setBodyFatPercent(e.target.value)}
               required
             />
           </label>
@@ -152,9 +178,10 @@ export function CalculatorPage() {
             <input
               className={field}
               type="number"
+              inputMode="decimal"
               step="0.1"
               value={heightCm}
-              onChange={(e) => setHeightCm(Number(e.target.value))}
+              onChange={(e) => setHeightCm(e.target.value)}
               required
             />
           </label>
@@ -163,8 +190,9 @@ export function CalculatorPage() {
             <input
               className={field}
               type="number"
+              inputMode="numeric"
               value={age}
-              onChange={(e) => setAge(Number(e.target.value))}
+              onChange={(e) => setAge(e.target.value)}
               required
             />
           </label>
