@@ -38,6 +38,7 @@ export function WeightChart({
             width={40}
           />
           <Tooltip
+            cursor={false}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
@@ -50,6 +51,7 @@ export function WeightChart({
             stroke="#7dd3c0"
             strokeWidth={2}
             dot={false}
+            activeDot={false}
             name="Weight (kg)"
           />
         </LineChart>

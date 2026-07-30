@@ -38,6 +38,7 @@ export function LiftProgressChart({
           <XAxis dataKey="date" tick={axis} tickFormatter={(v) => v.slice(5)} />
           <YAxis tick={axis} width={40} />
           <Tooltip
+            cursor={false}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
@@ -50,6 +51,7 @@ export function LiftProgressChart({
             stroke="#7dd3c0"
             strokeWidth={2}
             dot={{ r: 3 }}
+            activeDot={false}
             name="Best set (kg)"
           />
           <Line
@@ -58,6 +60,7 @@ export function LiftProgressChart({
             stroke="#737373"
             strokeWidth={1.5}
             dot={false}
+            activeDot={false}
             name="Volume"
           />
         </LineChart>

@@ -50,7 +50,7 @@ export function EeeBurnChart({
           />
           <YAxis tick={axis} width={40} />
           <Tooltip
-            cursor={{ fill: "rgba(125, 211, 192, 0.1)" }}
+            cursor={false}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
@@ -68,6 +68,7 @@ export function EeeBurnChart({
             radius={[4, 4, 0, 0]}
             maxBarSize={28}
             name="EEE (kcal)"
+            activeBar={false}
           />
         </BarChart>
       </ResponsiveContainer>

@@ -46,6 +46,7 @@ export function NutritionChart({
           <YAxis yAxisId="p" tick={axis} width={36} />
           <YAxis yAxisId="c" orientation="right" tick={axis} width={40} />
           <Tooltip
+            cursor={false}
             contentStyle={{
               background: "#171717",
               border: "1px solid #2a2a2a",
@@ -60,6 +61,7 @@ export function NutritionChart({
             stroke="#7dd3c0"
             strokeWidth={2}
             dot={false}
+            activeDot={false}
             name="Protein (g)"
           />
           {proteinTarget ? (
@@ -70,6 +72,7 @@ export function NutritionChart({
               stroke="#4b5563"
               strokeDasharray="4 4"
               dot={false}
+              activeDot={false}
               name="Protein goal"
             />
           ) : null}
@@ -80,6 +83,7 @@ export function NutritionChart({
             stroke="#a3a3a3"
             strokeWidth={1.5}
             dot={false}
+            activeDot={false}
             name="Calories"
           />
         </LineChart>

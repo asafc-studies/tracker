@@ -45,6 +45,16 @@ body {
   display: none;
 }
 
+/* Kill mobile tap wash / selection flash on Recharts SVGs */
+.recharts-wrapper,
+.recharts-surface,
+.recharts-responsive-container {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 input,
 select,
 textarea,
