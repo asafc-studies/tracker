@@ -89,8 +89,8 @@ export function SettingsNutrition() {
       <div>
         <h2 className="text-sm font-medium">Nutrition targets</h2>
         <p className="text-xs text-[var(--muted)] mt-1">
-          Set once here — shown as &quot;remaining&quot; only when logging food.
-          Region: Israel (Open Food Facts brands).
+          Set once here — shown as remaining when logging food. Protein uses a
+          1.61–2.2 g/kg range (floor 1.61). Region: Israel (Open Food Facts).
         </p>
       </div>
 

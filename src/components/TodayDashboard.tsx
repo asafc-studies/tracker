@@ -20,6 +20,9 @@ type ProfilePayload = {
   targets: {
     calorieTarget: number;
     proteinG: number;
+    proteinMinG?: number;
+    proteinGoodG?: number;
+    proteinMaxG?: number;
     carbsG: number;
     fatG: number;
     tdee: number;
@@ -198,6 +201,9 @@ export function TodayDashboard() {
                 warnings={getMacroWarnings(macros.totals, {
                   calorieTarget: profile.targets.calorieTarget,
                   proteinG: profile.targets.proteinG,
+                  proteinMinG: profile.targets.proteinMinG,
+                  proteinGoodG: profile.targets.proteinGoodG,
+                  proteinMaxG: profile.targets.proteinMaxG,
                   carbsG: profile.targets.carbsG,
                   fatG: profile.targets.fatG,
                 })}
@@ -207,6 +213,9 @@ export function TodayDashboard() {
                 targets={{
                   calorieTarget: profile.targets.calorieTarget,
                   proteinG: profile.targets.proteinG,
+                  proteinMinG: profile.targets.proteinMinG,
+                  proteinGoodG: profile.targets.proteinGoodG,
+                  proteinMaxG: profile.targets.proteinMaxG,
                   carbsG: profile.targets.carbsG,
                   fatG: profile.targets.fatG,
                   tdee: profile.targets.tdee,

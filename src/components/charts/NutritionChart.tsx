@@ -74,7 +74,7 @@ export function NutritionChart({
               strokeDasharray="4 4"
               dot={false}
               activeDot={false}
-              name="Protein goal"
+              name="Protein floor"
             />
           ) : null}
           <Line

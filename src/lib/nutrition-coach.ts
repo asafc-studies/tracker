@@ -7,6 +7,9 @@ export const KCAL_PER_KG_FAT = 7700;
 export type CoachTargets = {
   calorieTarget: number;
   proteinG: number;
+  proteinMinG?: number;
+  proteinGoodG?: number;
+  proteinMaxG?: number;
   carbsG: number;
   fatG: number;
   tdee: number;
@@ -110,7 +113,9 @@ export function buildNutritionCoach(
   const why: CoachBlock[] = [];
   const improvements: CoachBlock[] = [];
 
-  const proteinGap = Math.round(targets.proteinG - intake.proteinG);
+  const proteinFloor = targets.proteinMinG ?? targets.proteinG;
+  const proteinCeil = targets.proteinMaxG ?? targets.proteinG;
+  const proteinGap = Math.round(proteinFloor - intake.proteinG);
   const fatOver = Math.round(intake.fatG - targets.fatG);
   const carbGap = Math.round(targets.carbsG - intake.carbsG);
   const calorieGap = Math.round(targets.calorieTarget - intake.calories);
@@ -148,23 +153,28 @@ export function buildNutritionCoach(
     });
   }
 
-  // --- Protein ---
+  // --- Protein (floor ≈1.61 g/kg; strong zone 1.85–2.2) ---
   if (proteinGap >= 20) {
     why.push({
-      title: "Protein is short for a deficit",
-      body: `${Math.round(intake.proteinG)}g is fine for maintenance days, but in a calorie deficit muscle protein breakdown rises. Getting closer to ${targets.proteinG}g protects the muscle you're training for.`,
+      title: "Protein is under the recomp floor",
+      body: `${Math.round(intake.proteinG)}g is below ~${proteinFloor}g (≈1.61 g/kg). Evidence for retaining muscle in a deficit starts around that floor, with a useful band up to ~${proteinCeil}g (2.2 g/kg).`,
     });
     improvements.push({
-      title: "Close the protein gap",
+      title: "Get to the protein floor",
       body:
         proteinGap <= 40
-          ? `About ${proteinGap}g protein left — a scoop of whey, Greek yogurt, or a lean meat/fish portion usually covers it.`
-          : `You're ~${proteinGap}g under protein. Prioritize a lean protein serving at your next meal before adding more carbs or fats.`,
+          ? `About ${proteinGap}g to the floor — a scoop of whey, Greek yogurt, or a lean meat/fish portion usually covers it.`
+          : `You're ~${proteinGap}g under the 1.61 g/kg floor. Prioritize a lean protein serving at your next meal before adding more carbs or fats.`,
     });
   } else if (proteinGap > 5 && !incomplete) {
     why.push({
-      title: "Protein is nearly there",
-      body: `${Math.round(intake.proteinG)}g / ${targets.proteinG}g — close enough for most days; another small serving would nail the target.`,
+      title: "Protein is nearly in range",
+      body: `${Math.round(intake.proteinG)}g / ${proteinFloor}g floor — close; another small serving would clear the minimum.`,
+    });
+  } else if (!incomplete && intake.proteinG >= proteinFloor) {
+    why.push({
+      title: "Protein is in the recomp range",
+      body: `${Math.round(intake.proteinG)}g clears the ~${proteinFloor}g floor (1.61 g/kg). Stronger zone sits toward ~${targets.proteinGoodG ?? proteinFloor}–${proteinCeil}g.`,
     });
   }
 
@@ -195,7 +205,7 @@ export function buildNutritionCoach(
     if (Math.abs(calorieGap) <= 100 && proteinGap <= 15) {
       improvements.push({
         title: "Keep the rhythm",
-        body: `Stay near ${targets.calorieTarget} kcal with protein around ${targets.proteinG}g. Consistency beats perfect daily hits.`,
+        body: `Stay near ${targets.calorieTarget} kcal with protein at least ~${proteinFloor}g (1.61 g/kg floor; strong zone toward ${proteinCeil}g). Consistency beats perfect daily hits.`,
       });
     } else if (calorieGap > 100) {
       improvements.push({
@@ -228,7 +238,7 @@ export function buildNutritionCoach(
   const closing =
     status === "incomplete"
       ? "Don't stress mid-day numbers. Log the rest of your meals, keep protein high, and re-check this panel tonight."
-      : `Don't stress hitting every gram perfectly. If most days land near ${targets.calorieTarget} kcal with protein close to ${targets.proteinG}g, recomposition can still happen.`;
+      : `Don't stress hitting every gram perfectly. If most days land near ${targets.calorieTarget} kcal with protein at or above ~${proteinFloor}g (1.61 g/kg), recomposition can still happen.`;
 
   return {
     status,

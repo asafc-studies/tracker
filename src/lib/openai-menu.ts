@@ -107,6 +107,9 @@ export async function buildMenuImproveContext(userId: string) {
       const warnings = getMacroWarnings(totals, {
         calorieTarget: targets.calorieTarget,
         proteinG: targets.proteinG,
+        proteinMinG: targets.proteinMinG,
+        proteinGoodG: targets.proteinGoodG,
+        proteinMaxG: targets.proteinMaxG,
         carbsG: targets.carbsG,
         fatG: targets.fatG,
       });
@@ -130,6 +133,9 @@ export async function buildMenuImproveContext(userId: string) {
   const todayWarnings = getMacroWarnings(todayTotals, {
     calorieTarget: targets.calorieTarget,
     proteinG: targets.proteinG,
+    proteinMinG: targets.proteinMinG,
+    proteinGoodG: targets.proteinGoodG,
+    proteinMaxG: targets.proteinMaxG,
     carbsG: targets.carbsG,
     fatG: targets.fatG,
   });
@@ -163,6 +169,11 @@ export async function buildMenuImproveContext(userId: string) {
     targets: {
       calorieTarget: targets.calorieTarget,
       proteinG: targets.proteinG,
+      proteinMinG: targets.proteinMinG,
+      proteinGoodG: targets.proteinGoodG,
+      proteinMaxG: targets.proteinMaxG,
+      proteinRangeNote:
+        "Hit proteinMinG (≈1.61 g/kg) first; proteinGoodG–proteinMaxG is the strong zone. proteinG is the planning midpoint (~1.85 g/kg), not a hard ceiling.",
       carbsG: targets.carbsG,
       fatG: targets.fatG,
       tdee: targets.tdee,
@@ -203,19 +214,24 @@ export async function improveMenuWithAI(
   );
 
   const gaps = {
-    proteinG: Math.round(context.targets.proteinG - planTotals.proteinG),
+    proteinG: Math.round(
+      (context.targets.proteinMinG ?? context.targets.proteinG) -
+        planTotals.proteinG,
+    ),
     carbsG: Math.round(context.targets.carbsG - planTotals.carbsG),
     fatG: Math.round(context.targets.fatG - planTotals.fatG),
     calories: Math.round(context.targets.calorieTarget - planTotals.calories),
   };
 
   const system = `You are a body-recomposition meal planner.
-Primary goal: hit the user's daily macro TARGETS as closely as possible.
+Primary goal: land macros in the user's TARGET bands.
 Secondary goal: keep the menu recognizable — same meal pattern and mostly familiar foods.
 If goalTarget is set (e.g. lose fat / recomp / gain), bias food choices toward that without missing macros.
 
+PROTEIN: evidence range ≈1.61–2.2 g/kg. Clear proteinMinG first; aiming near proteinGoodG–proteinMaxG is fine. Do not treat proteinMaxG as mandatory.
+
 PRIORITY ORDER (strict):
-1) Protein within ±10g of target (highest priority)
+1) Protein at or above proteinMinG (highest priority); prefer near proteinG (~1.85 g/kg plan)
 2) Calories within ±80 kcal of target
 3) Fat within ±5g of target (do not overshoot fat)
 4) Carbs fill remaining calories (within ±20g when possible)

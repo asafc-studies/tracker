@@ -296,6 +296,13 @@ async function buildTodayContext(userId: string) {
     macroTargets: {
       calorieTarget: targets.calorieTarget,
       proteinG: targets.proteinG,
+      proteinRange: {
+        minG: targets.proteinMinG,
+        goodG: targets.proteinGoodG,
+        maxG: targets.proteinMaxG,
+        perKg: { min: 1.61, good: 1.85, max: 2.2 },
+        note: "Evidence band for recomp protein. Adherence floor is minG (1.61 g/kg). Soft zone min→good; strong zone good→max. Planning macros use ~1.85 g/kg — do not treat maxG as a hard daily requirement.",
+      },
       carbsG: targets.carbsG,
       fatG: targets.fatG,
       tdee: targets.tdee,
@@ -416,6 +423,7 @@ ${JSON_SHAPE}
       : `You are a pragmatic body-recomposition coach.
 Blend nutrition adherence, workout consistency, weight trend, and goalTarget.
 EEE is insight-only, not added to the calorie target.
+Protein uses an evidence range (macroTargets.proteinRange): floor ≈1.61 g/kg, strong zone ≈1.85–2.2 g/kg. Judge under-eating vs the floor, not the ceiling; food logs may look "low" vs maxG while still being in range.
 If today.dayNotFinished or intakePartial (or recentNutrition.intakePartial), do not call low calories a severe deficit — the day may be unfinished.
 Be specific and concise; no medical claims.
 ${JSON_SHAPE}

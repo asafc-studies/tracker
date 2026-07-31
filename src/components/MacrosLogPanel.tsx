@@ -8,7 +8,7 @@ import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
-import { formatMacroShort, getMacroWarnings, progressRatio, remainingLabel } from "@/lib/macros";
+import { formatMacroShort, getMacroWarnings, progressRatio, proteinBarFillClass, proteinBarSegments, proteinRemainingLabel, remainingLabel } from "@/lib/macros";
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -40,6 +40,9 @@ type ProfilePayload = {
   } | null;
   targets: {
     proteinG: number;
+    proteinMinG?: number;
+    proteinGoodG?: number;
+    proteinMaxG?: number;
     calorieTarget: number;
     carbsG: number;
     fatG: number;
@@ -88,7 +91,9 @@ export function MacrosLogPanel({ date }: Props) {
     calories: 0,
   };
   const targets = profileQuery.data?.targets ?? null;
-  const proteinTarget = targets?.proteinG ?? 0;
+  const proteinMin = targets?.proteinMinG ?? targets?.proteinG ?? 0;
+  const proteinGood = targets?.proteinGoodG ?? proteinMin;
+  const proteinMax = targets?.proteinMaxG ?? targets?.proteinG ?? 0;
   const calorieTarget = targets?.calorieTarget ?? 0;
   const hasTargets = Boolean(targets);
   const warnings =
@@ -96,14 +101,31 @@ export function MacrosLogPanel({ date }: Props) {
       ? getMacroWarnings(totals, {
           calorieTarget: targets.calorieTarget,
           proteinG: targets.proteinG,
+          proteinMinG: proteinMin,
+          proteinGoodG: proteinGood,
+          proteinMaxG: proteinMax,
           carbsG: targets.carbsG,
           fatG: targets.fatG,
         })
       : [];
   const fatWarned = warnings.some((w) => w.metric === "fat");
   const calWarned = warnings.some((w) => w.metric === "calories");
-  const proteinWarned = warnings.some((w) => w.metric === "protein");
+  const proteinNote = warnings.find((w) => w.metric === "protein");
   const carbWarned = warnings.some((w) => w.metric === "carbs");
+  const proteinSegments = proteinBarSegments(
+    totals.proteinG,
+    proteinMin,
+    proteinGood,
+    proteinMax,
+  );
+  const proteinToneClass =
+    proteinNote?.tone === "hard"
+      ? "text-[var(--accent)]"
+      : proteinNote?.tone === "soft"
+        ? "text-[var(--accent)]/90"
+        : proteinNote?.tone === "warn"
+          ? "text-[var(--warn)]"
+          : "";
 
   async function refreshAfterWrite() {
     await invalidateAfterMacros(queryClient, date);
@@ -245,11 +267,22 @@ export function MacrosLogPanel({ date }: Props) {
                   </span>
                 </p>
                 <p className="text-xs text-[var(--accent)]">
-                  {remainingLabel(totals.proteinG, proteinTarget, "g")}
+                  {proteinRemainingLabel(
+                    totals.proteinG,
+                    proteinMin,
+                    proteinMax,
+                  )}
                 </p>
-                {proteinWarned ? (
-                  <p className="text-xs text-[var(--warn)] mt-0.5">
-                    Below recomp target
+                {proteinNote ? (
+                  <p className={`text-xs mt-0.5 ${proteinToneClass}`}>
+                    {proteinNote.tone === "warn" &&
+                    totals.proteinG > proteinMax
+                      ? "Past range max"
+                      : proteinNote.tone === "warn"
+                        ? "Below 1.61 g/kg floor"
+                        : proteinNote.tone === "soft"
+                          ? "Good — could be better"
+                          : "Good enough"}
                   </p>
                 ) : null}
               </div>
@@ -276,20 +309,39 @@ export function MacrosLogPanel({ date }: Props) {
             <div className="space-y-2">
               <div>
                 <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
-                  <span>Protein</span>
-                  <span className={proteinWarned ? "text-[var(--warn)]" : ""}>
-                    {Math.round(totals.proteinG)}/{proteinTarget}g
+                  <span>Protein · 1.61–2.2 g/kg</span>
+                  <span className={proteinToneClass || undefined}>
+                    {Math.round(totals.proteinG)}g
+                    {proteinMin > 0
+                      ? ` · floor ${proteinMin} · max ${proteinMax}`
+                      : ""}
                   </span>
                 </div>
-                <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-500 ${
-                      proteinWarned ? "bg-[var(--warn)]" : "bg-[var(--accent)]"
-                    }`}
-                    style={{
-                      width: `${progressRatio(totals.proteinG, proteinTarget) * 100}%`,
-                    }}
-                  />
+                <div className="relative h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  {proteinSegments.map((seg) => (
+                    <div
+                      key={seg.key}
+                      className={`absolute top-0 bottom-0 transition-all duration-500 ${proteinBarFillClass(seg.key)}`}
+                      style={{
+                        left: `${seg.leftPct}%`,
+                        width: `${seg.widthPct}%`,
+                      }}
+                    />
+                  ))}
+                  {proteinMax > 0 ? (
+                    <>
+                      <span
+                        className="absolute top-0 bottom-0 w-px bg-white/25"
+                        style={{ left: `${(proteinMin / proteinMax) * 100}%` }}
+                        title="1.61 g/kg floor"
+                      />
+                      <span
+                        className="absolute top-0 bottom-0 w-px bg-white/40"
+                        style={{ left: `${(proteinGood / proteinMax) * 100}%` }}
+                        title="1.85 g/kg strong zone"
+                      />
+                    </>
+                  ) : null}
                 </div>
               </div>
               <div>

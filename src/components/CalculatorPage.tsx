@@ -21,6 +21,9 @@ type Targets = {
   deficit: number;
   calorieTarget: number;
   proteinG: number;
+  proteinMinG?: number;
+  proteinGoodG?: number;
+  proteinMaxG?: number;
   carbsG: number;
   fatG: number;
   leanBodyMassKg?: number;
@@ -242,8 +245,9 @@ export function CalculatorPage() {
 
         <p className="text-xs text-[var(--muted)] leading-relaxed">
           BMR uses Katch-McArdle from lean mass. Target = TDEE − {DEFAULT_DEFICIT_KCAL}{" "}
-          kcal. Protein {DEFAULT_PROTEIN_PER_KG} g/kg · fat 25% of target · carbs
-          fill the rest. Workout EEE is not subtracted from this target.
+          kcal. Protein aims ~{DEFAULT_PROTEIN_PER_KG} g/kg inside a 1.61–2.2 g/kg
+          range (floor 1.61; strong zone from 1.85). Fat 25% of target · carbs fill
+          the rest. Workout EEE is not subtracted from this target.
         </p>
 
         <button
@@ -266,6 +270,14 @@ export function CalculatorPage() {
             ["TDEE", `${targets.tdee} kcal`],
             ["Target", `${targets.calorieTarget} kcal`],
             ["Protein", `${targets.proteinG} g`],
+            ...(targets.proteinMinG != null
+              ? [
+                  [
+                    "P range",
+                    `${targets.proteinMinG}–${targets.proteinMaxG ?? "—"} g`,
+                  ] as [string, string],
+                ]
+              : []),
             ["Carbs / Fat", `${targets.carbsG}g / ${targets.fatG}g`],
           ].map(([label, value]) => (
             <div

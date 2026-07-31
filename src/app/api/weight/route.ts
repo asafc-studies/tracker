@@ -121,7 +121,7 @@ export async function GET(req: Request) {
         proteinTargetOverride: profile.proteinTargetOverride ?? null,
       });
       if (targets) {
-        proteinTarget = targets.proteinG;
+        proteinTarget = targets.proteinMinG;
         calorieTarget = targets.calorieTarget;
       }
     }

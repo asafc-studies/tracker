@@ -9,6 +9,8 @@
   --muted: #8a8a8a;
   --accent: #7dd3c0;
   --accent-soft: rgba(125, 211, 192, 0.12);
+  --protein-low: #5b9fd4;
+  --protein-low-soft: rgba(91, 159, 212, 0.14);
   --warn: #e0a46a;
   --warn-soft: rgba(224, 164, 106, 0.12);
 }

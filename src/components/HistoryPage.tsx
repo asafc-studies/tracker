@@ -387,8 +387,8 @@ export function HistoryPage() {
                   <span className="text-[var(--muted)] ml-2">
                     {proteinTarget != null
                       ? hit
-                        ? "protein met"
-                        : "under protein"
+                        ? "in range"
+                        : "under floor"
                       : ""}
                   </span>
                 </span>

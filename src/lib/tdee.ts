@@ -33,8 +33,21 @@ export const ACTIVITY_OPTIONS: ActivityLevel[] = [
 ];
 
 export const DEFAULT_DEFICIT_KCAL = 400;
-export const DEFAULT_PROTEIN_PER_KG = 2.2;
+/** Evidence-based recomp protein range (g per kg body weight). */
+export const PROTEIN_PER_KG_MIN = 1.61;
+export const PROTEIN_PER_KG_GOOD = 1.85;
+export const PROTEIN_PER_KG_MAX = 2.2;
+/** Planning rate inside the range (macro split); not a hard ceiling. */
+export const DEFAULT_PROTEIN_PER_KG = PROTEIN_PER_KG_GOOD;
 export const FAT_CALORIE_FRACTION = 0.25;
+
+export function proteinRangeFromWeight(weightKg: number) {
+  return {
+    minG: Math.round(weightKg * PROTEIN_PER_KG_MIN),
+    goodG: Math.round(weightKg * PROTEIN_PER_KG_GOOD),
+    maxG: Math.round(weightKg * PROTEIN_PER_KG_MAX),
+  };
+}
 
 /** Lean body mass from total weight and body-fat %. */
 export function leanBodyMassKg(weightKg: number, bodyFatPercent: number) {
@@ -88,6 +101,8 @@ export function calcTargets(input: {
   const deficit = clampDeficit(input.deficitKcal ?? DEFAULT_DEFICIT_KCAL);
   const calorieTarget = Math.max(1200, tdee - deficit);
 
+  const range = proteinRangeFromWeight(input.weightKg);
+  /** Prefer explicit rate; otherwise plan at the "good" point in the range. */
   const proteinPerKg = input.proteinPerKg ?? DEFAULT_PROTEIN_PER_KG;
   const proteinG = Math.round(input.weightKg * proteinPerKg);
   const proteinKcal = proteinG * 4;
@@ -106,6 +121,9 @@ export function calcTargets(input: {
     deficit,
     calorieTarget,
     proteinG,
+    proteinMinG: range.minG,
+    proteinGoodG: range.goodG,
+    proteinMaxG: range.maxG,
     carbsG,
     fatG,
     proteinPerKg,
@@ -146,13 +164,18 @@ export function resolveTargets(profile: ProfileForTargets) {
     bodyFatPercent: profile.bodyFatPercent,
     activityLevel: (profile.activityLevel ?? "moderate") as ActivityLevel,
     deficitKcal: profile.deficitKcal ?? DEFAULT_DEFICIT_KCAL,
-    proteinPerKg: profile.proteinPerKg ?? DEFAULT_PROTEIN_PER_KG,
+    /** Always plan inside the evidence range; ignore legacy 2.2 stores. */
+    proteinPerKg: DEFAULT_PROTEIN_PER_KG,
   });
+  const range = proteinRangeFromWeight(profile.weightKg);
 
   return {
     ...computed,
     calorieTarget: profile.calorieTargetOverride ?? computed.calorieTarget,
     proteinG: profile.proteinTargetOverride ?? computed.proteinG,
+    proteinMinG: range.minG,
+    proteinGoodG: range.goodG,
+    proteinMaxG: range.maxG,
     computedCalorieTarget: computed.calorieTarget,
     computedProteinG: computed.proteinG,
     hasOverrides:
