@@ -117,10 +117,10 @@ export function proteinBarZone(
 
 export function proteinBarFillClass(zone: ProteinBarZone | "low" | "soft" | "hard" | "max" | "over") {
   if (zone === "low") return "bg-[var(--protein-low)]";
-  if (zone === "soft") return "bg-[var(--accent)]/45";
-  if (zone === "hard") return "bg-[var(--accent)]/80";
+  if (zone === "soft") return "bg-[var(--protein-soft)]";
+  if (zone === "hard") return "bg-[var(--protein-hard)]";
   if (zone === "over") return "bg-[var(--warn)]";
-  return "bg-[var(--accent)]"; // max — darkest green
+  return "bg-[var(--protein-max)]";
 }
 
 /** Stacked fill: blue → soft → harder → darkest at ceiling. */

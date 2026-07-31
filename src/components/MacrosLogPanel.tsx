@@ -120,9 +120,9 @@ export function MacrosLogPanel({ date }: Props) {
   );
   const proteinToneClass =
     proteinNote?.tone === "hard"
-      ? "text-[var(--accent)]"
+      ? "text-[var(--protein-hard)]"
       : proteinNote?.tone === "soft"
-        ? "text-[var(--accent)]/90"
+        ? "text-[var(--protein-soft)]"
         : proteinNote?.tone === "warn"
           ? "text-[var(--warn)]"
           : "";

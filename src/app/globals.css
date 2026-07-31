@@ -11,6 +11,9 @@
   --accent-soft: rgba(125, 211, 192, 0.12);
   --protein-low: #5b9fd4;
   --protein-low-soft: rgba(91, 159, 212, 0.14);
+  --protein-soft: #9ee0d2;
+  --protein-hard: #5bc4ae;
+  --protein-max: #2f9a84;
   --warn: #e0a46a;
   --warn-soft: rgba(224, 164, 106, 0.12);
 }

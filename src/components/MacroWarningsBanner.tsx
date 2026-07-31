@@ -14,14 +14,14 @@ function toneClasses(
   }
   if (tone === "soft") {
     return {
-      box: "border-[var(--accent)]/40 bg-[var(--accent-soft)]",
-      title: "text-[var(--accent)]/90",
+      box: "border-[var(--protein-soft)]/50 bg-[var(--accent-soft)]",
+      title: "text-[var(--protein-soft)]",
     };
   }
   if (tone === "hard") {
     return {
-      box: "border-[var(--accent)] bg-[var(--accent-soft)]",
-      title: "text-[var(--accent)]",
+      box: "border-[var(--protein-hard)] bg-[var(--accent-soft)]",
+      title: "text-[var(--protein-hard)]",
     };
   }
   return {
