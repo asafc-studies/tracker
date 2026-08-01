@@ -412,10 +412,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               selected.lastLoggedQuantity > 0 ? (
                 <>
                   {" "}
-                  · last logged{" "}
-                  {selected.lastLoggedQuantity === 1
-                    ? "1 serving"
-                    : `${selected.lastLoggedQuantity} servings`}
+                  · last time ×{selected.lastLoggedQuantity}
                 </>
               ) : null}
             </p>
@@ -447,7 +444,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
             ) : (
               <label className="space-y-1 block">
                 <span className="text-xs text-[var(--muted)]">
-                  Servings ({selected.servingLabel})
+                  Portions of {selected.servingLabel}
                 </span>
                 <input
                   type="text"

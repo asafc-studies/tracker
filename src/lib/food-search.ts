@@ -13,41 +13,62 @@ export function stripPortionFromName(name: string) {
   return name.replace(/\s*\([^)]*\)\s*$/, "").trim() || name;
 }
 
+function savedToHistoryResult(
+  log: typeof schema.foodLogs.$inferSelect,
+  saved: typeof schema.savedFoods.$inferSelect,
+  idPrefix = "hist",
+): FoodSearchResult {
+  const lastQty = log.quantity && log.quantity > 0 ? log.quantity : 1;
+  const label = saved.servingLabel ?? "1 serving";
+  const parsedMl = parseVolumeMl(label);
+  return {
+    id: `${idPrefix}-${log.id}`,
+    name: saved.name,
+    brand: saved.brand,
+    barcode: saved.barcode,
+    source: "history",
+    externalId: saved.externalId,
+    servingLabel: label,
+    servingGrams: parsedMl ? null : saved.servingGrams,
+    servingUnit: parsedMl ? "ml" : "g",
+    servingAmount: parsedMl ?? saved.servingGrams ?? null,
+    // Always the food's known per-serving macros — not last-log totals.
+    proteinG: saved.proteinG,
+    carbsG: saved.carbsG,
+    fatG: saved.fatG,
+    calories: saved.calories,
+    savedFoodId: saved.id,
+    lastLoggedQuantity: lastQty,
+  };
+}
+
 function logToSearchResult(
   log: typeof schema.foodLogs.$inferSelect,
   saved?: typeof schema.savedFoods.$inferSelect,
+  reference?: FoodSearchResult,
 ): FoodSearchResult {
   const lastQty = log.quantity && log.quantity > 0 ? log.quantity : 1;
 
-  if (saved) {
-    const label = saved.servingLabel ?? "1 serving";
-    const parsedMl = parseVolumeMl(label);
+  if (saved) return savedToHistoryResult(log, saved);
+
+  // Prefer a catalog staple's known serving over deriving from the last log.
+  if (reference) {
     return {
+      ...reference,
       id: `hist-${log.id}`,
-      name: saved.name,
-      brand: saved.brand,
-      barcode: saved.barcode,
       source: "history",
-      externalId: saved.externalId,
-      servingLabel: label,
-      servingGrams: parsedMl ? null : saved.servingGrams,
-      servingUnit: parsedMl ? "ml" : "g",
-      servingAmount: parsedMl ?? saved.servingGrams ?? null,
-      proteinG: saved.proteinG,
-      carbsG: saved.carbsG,
-      fatG: saved.fatG,
-      calories: saved.calories,
-      savedFoodId: saved.id,
       lastLoggedQuantity: lastQty,
     };
   }
 
+  // Fallback: per quantity-unit from the log (manual foods with no catalog entry).
   return {
     id: `hist-${log.id}`,
     name: stripPortionFromName(log.name),
     brand: log.brand,
     source: "history",
     servingLabel: "1 serving",
+    servingUnit: "serving",
     proteinG: log.proteinG / lastQty,
     carbsG: log.carbsG / lastQty,
     fatG: log.fatG / lastQty,
@@ -55,6 +76,12 @@ function logToSearchResult(
     savedFoodId: log.savedFoodId,
     lastLoggedQuantity: lastQty,
   };
+}
+
+function findReferenceMatch(name: string): FoodSearchResult | undefined {
+  const key = stripPortionFromName(name).toLowerCase();
+  const hits = searchReferenceFoods(key.length >= 2 ? key : name, 8);
+  return hits.find((r) => r.name.toLowerCase() === key);
 }
 
 function toSavedResult(row: typeof schema.savedFoods.$inferSelect): FoodSearchResult {
@@ -151,10 +178,20 @@ export async function searchFoods(
   for (const log of recentLogs) {
     const key = stripPortionFromName(log.name).toLowerCase();
     if (historyMap.has(key)) continue;
-    const saved = log.savedFoodId
+    let linked = log.savedFoodId
       ? historySavedById.get(log.savedFoodId)
       : undefined;
-    historyMap.set(key, logToSearchResult(log, saved));
+    if (!linked) {
+      linked = saved.find((row) => row.name.toLowerCase() === key);
+    }
+    historyMap.set(
+      key,
+      logToSearchResult(
+        log,
+        linked,
+        linked ? undefined : findReferenceMatch(log.name),
+      ),
+    );
   }
 
   let offResults: FoodSearchResult[] = [];
@@ -278,16 +315,25 @@ export async function getRecentFoods(userId: string, limit = 10) {
       logs.map((log) => log.savedFoodId).filter((id): id is string => Boolean(id)),
     ),
   ];
-  const savedRows =
+  const [savedRows, customSaved] = await Promise.all([
     savedIds.length > 0
-      ? await db.query.savedFoods.findMany({
+      ? db.query.savedFoods.findMany({
           where: and(
             eq(schema.savedFoods.userId, userId),
             inArray(schema.savedFoods.id, savedIds),
           ),
         })
-      : [];
+      : Promise.resolve([]),
+    db.query.savedFoods.findMany({
+      where: eq(schema.savedFoods.userId, userId),
+      orderBy: [desc(schema.savedFoods.createdAt)],
+      limit: 80,
+    }),
+  ]);
   const savedById = new Map(savedRows.map((row) => [row.id, row]));
+  const savedByName = new Map(
+    customSaved.map((row) => [row.name.toLowerCase(), row]),
+  );
 
   const seen = new Set<string>();
   const results: FoodSearchResult[] = [];
@@ -295,9 +341,14 @@ export async function getRecentFoods(userId: string, limit = 10) {
     const key = stripPortionFromName(log.name).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const saved = log.savedFoodId ? savedById.get(log.savedFoodId) : undefined;
+    let linked = log.savedFoodId ? savedById.get(log.savedFoodId) : undefined;
+    if (!linked) linked = savedByName.get(key);
     results.push({
-      ...logToSearchResult(log, saved),
+      ...logToSearchResult(
+        log,
+        linked,
+        linked ? undefined : findReferenceMatch(log.name),
+      ),
       id: `recent-${log.id}`,
     });
     if (results.length >= limit) break;

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { jsonError, jsonOk, requireUser } from "@/lib/api";
 import { cacheOffResult } from "@/lib/food-search";
@@ -21,7 +21,37 @@ export async function GET(req: Request) {
     orderBy: [desc(schema.foodLogs.createdAt)],
   });
 
-  return jsonOk({ date, foods, totals: sumMacros(foods) });
+  const savedIds = [
+    ...new Set(
+      foods
+        .map((f) => f.savedFoodId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const savedRows =
+    savedIds.length > 0
+      ? await db.query.savedFoods.findMany({
+          where: and(
+            eq(schema.savedFoods.userId, authz.userId),
+            inArray(schema.savedFoods.id, savedIds),
+          ),
+        })
+      : [];
+  const savedById = new Map(savedRows.map((row) => [row.id, row]));
+
+  const enriched = foods.map((f) => {
+    const q = f.quantity && f.quantity > 0 ? f.quantity : 1;
+    const saved = f.savedFoodId ? savedById.get(f.savedFoodId) : undefined;
+    return {
+      ...f,
+      servingLabel: saved?.servingLabel ?? "1 serving",
+      servingProteinG: saved?.proteinG ?? Math.round((f.proteinG / q) * 10) / 10,
+      servingCarbsG: saved?.carbsG ?? Math.round((f.carbsG / q) * 10) / 10,
+      servingFatG: saved?.fatG ?? Math.round((f.fatG / q) * 10) / 10,
+    };
+  });
+
+  return jsonOk({ date, foods: enriched, totals: sumMacros(foods) });
 }
 
 export async function POST(req: Request) {
@@ -45,6 +75,8 @@ export async function POST(req: Request) {
   }
   if (!calories) calories = caloriesFromMacros(proteinG, carbsG, fatG);
 
+  const db = await getDb();
+
   if (body.cacheFood && body.foodSource) {
     const cached = await cacheOffResult(authz.userId, {
       id: body.foodId ?? name,
@@ -63,7 +95,38 @@ export async function POST(req: Request) {
     if (cached) savedFoodId = cached;
   }
 
-  const db = await getDb();
+  // Manual / uncached entries: keep a per-serving definition for later reuse.
+  if (!savedFoodId) {
+    const qty = quantity > 0 ? quantity : 1;
+    const existing = await db.query.savedFoods.findFirst({
+      where: and(
+        eq(schema.savedFoods.userId, authz.userId),
+        eq(schema.savedFoods.name, name),
+        eq(schema.savedFoods.source, "custom"),
+      ),
+    });
+    if (existing) {
+      savedFoodId = existing.id;
+    } else {
+      const [saved] = await db
+        .insert(schema.savedFoods)
+        .values({
+          userId: authz.userId,
+          name,
+          brand,
+          source: "custom",
+          servingLabel: body.servingLabel ?? "1 serving",
+          servingGrams: body.servingGrams ?? null,
+          proteinG: Math.round((proteinG / qty) * 10) / 10,
+          carbsG: Math.round((carbsG / qty) * 10) / 10,
+          fatG: Math.round((fatG / qty) * 10) / 10,
+          calories: Math.round(calories / qty),
+        })
+        .returning();
+      savedFoodId = saved.id;
+    }
+  }
+
   const [row] = await db
     .insert(schema.foodLogs)
     .values({
@@ -101,20 +164,121 @@ export async function PATCH(req: Request) {
 
   if (!row) return jsonError("Not found", 404);
 
-  if (body.quantity == null) {
-    return jsonError("quantity is required");
+  const hasMacros =
+    body.proteinG != null || body.carbsG != null || body.fatG != null;
+  const hasQuantity = body.quantity != null;
+  const hasName = body.name != null;
+
+  if (!hasMacros && !hasQuantity && !hasName) {
+    return jsonError("Nothing to update");
   }
 
-  const quantity = Number(body.quantity);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    return jsonError("Invalid quantity");
+  const patch: {
+    name?: string;
+    proteinG?: number;
+    carbsG?: number;
+    fatG?: number;
+    calories?: number;
+    quantity?: number;
+  } = {};
+
+  if (hasName) {
+    const name = String(body.name || "").trim();
+    if (!name) return jsonError("Name is required");
+    patch.name = name;
   }
 
-  const scaled = scaleMacrosByQuantity(row, quantity);
+  if (hasMacros) {
+    const proteinG = Number(body.proteinG ?? row.proteinG);
+    const carbsG = Number(body.carbsG ?? row.carbsG);
+    const fatG = Number(body.fatG ?? row.fatG);
+    if (
+      !Number.isFinite(proteinG) ||
+      !Number.isFinite(carbsG) ||
+      !Number.isFinite(fatG)
+    ) {
+      return jsonError("Invalid macros");
+    }
+    patch.proteinG = proteinG;
+    patch.carbsG = carbsG;
+    patch.fatG = fatG;
+    patch.calories = caloriesFromMacros(proteinG, carbsG, fatG);
+    if (hasQuantity) {
+      const quantity = Number(body.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return jsonError("Invalid quantity");
+      }
+      patch.quantity = quantity;
+    }
+  } else if (hasQuantity) {
+    const quantity = Number(body.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return jsonError("Invalid quantity");
+    }
+
+    // Rescale from the food's known serving when linked; else from current log.
+    if (row.savedFoodId) {
+      const saved = await db.query.savedFoods.findFirst({
+        where: and(
+          eq(schema.savedFoods.id, row.savedFoodId),
+          eq(schema.savedFoods.userId, authz.userId),
+        ),
+      });
+      if (saved) {
+        const proteinG = Math.round(saved.proteinG * quantity * 10) / 10;
+        const carbsG = Math.round(saved.carbsG * quantity * 10) / 10;
+        const fatG = Math.round(saved.fatG * quantity * 10) / 10;
+        patch.proteinG = proteinG;
+        patch.carbsG = carbsG;
+        patch.fatG = fatG;
+        patch.calories = caloriesFromMacros(proteinG, carbsG, fatG);
+        patch.quantity = quantity;
+      } else {
+        Object.assign(patch, scaleMacrosByQuantity(row, quantity));
+      }
+    } else {
+      Object.assign(patch, scaleMacrosByQuantity(row, quantity));
+    }
+  }
+
+  // Keep custom saved serving in sync only when client says macros were edited.
+  if (
+    body.syncServing === true &&
+    hasMacros &&
+    row.savedFoodId &&
+    (patch.proteinG != null || patch.carbsG != null || patch.fatG != null)
+  ) {
+    const saved = await db.query.savedFoods.findFirst({
+      where: and(
+        eq(schema.savedFoods.id, row.savedFoodId),
+        eq(schema.savedFoods.userId, authz.userId),
+      ),
+    });
+    if (saved?.source === "custom") {
+      const qty =
+        (patch.quantity ?? row.quantity) && (patch.quantity ?? row.quantity)! > 0
+          ? (patch.quantity ?? row.quantity)!
+          : 1;
+      const p = patch.proteinG ?? row.proteinG;
+      const c = patch.carbsG ?? row.carbsG;
+      const f = patch.fatG ?? row.fatG;
+      const cal = patch.calories ?? row.calories;
+      await db
+        .update(schema.savedFoods)
+        .set({
+          name: patch.name ?? row.name,
+          proteinG: Math.round((p / qty) * 10) / 10,
+          carbsG: Math.round((c / qty) * 10) / 10,
+          fatG: Math.round((f / qty) * 10) / 10,
+          calories: Math.round(cal / qty),
+        })
+        .where(eq(schema.savedFoods.id, saved.id));
+    }
+  }
 
   const [updated] = await db
     .update(schema.foodLogs)
-    .set(scaled)
+    .set(patch)
     .where(eq(schema.foodLogs.id, id))
     .returning();
 

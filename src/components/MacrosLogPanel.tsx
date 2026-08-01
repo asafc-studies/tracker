@@ -11,16 +11,22 @@ import { scaleFood } from "@/lib/food-reference";
 import { formatMacroShort, getMacroWarnings, progressRatio, proteinBarFillClass, proteinBarSegments, proteinRemainingLabel, remainingLabel } from "@/lib/macros";
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
+import { todayISODate } from "@/lib/tdee";
 
 type Food = {
   id: string;
   name: string;
   brand?: string | null;
+  savedFoodId?: string | null;
   quantity?: number | null;
   proteinG: number;
   carbsG: number;
   fatG: number;
   calories: number;
+  servingLabel?: string;
+  servingProteinG?: number;
+  servingCarbsG?: number;
+  servingFatG?: number;
 };
 
 type MacrosPayload = {
@@ -56,8 +62,14 @@ type Props = {
   date: string;
 };
 
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
+}
+
 export function MacrosLogPanel({ date }: Props) {
   const queryClient = useQueryClient();
+  const today = todayISODate();
+  const isPastDate = date < today;
   const [showManual, setShowManual] = useState(false);
   const [name, setName] = useState("");
   const [proteinG, setProteinG] = useState(0);
@@ -65,8 +77,18 @@ export function MacrosLogPanel({ date }: Props) {
   const [fatG, setFatG] = useState(0);
   const [autoFillHint, setAutoFillHint] = useState("");
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
   const [editQuantity, setEditQuantity] = useState("");
+  const [editServingLabel, setEditServingLabel] = useState("1 serving");
+  /** Per original serving — stays fixed unless the user edits these fields. */
+  const [editProtein, setEditProtein] = useState(0);
+  const [editCarbs, setEditCarbs] = useState(0);
+  const [editFat, setEditFat] = useState(0);
+  const [macrosTouched, setMacrosTouched] = useState(false);
   const [savingFoodId, setSavingFoodId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copyingAll, setCopyingAll] = useState(false);
+  const [copyHint, setCopyHint] = useState("");
 
   const field = nutritionFieldClass();
 
@@ -131,7 +153,7 @@ export function MacrosLogPanel({ date }: Props) {
     await invalidateAfterMacros(queryClient, date);
   }
 
-  async function addFood(payload: {
+  async function postFood(payload: {
     name: string;
     proteinG: number;
     carbsG: number;
@@ -151,11 +173,16 @@ export function MacrosLogPanel({ date }: Props) {
     baseFatG?: number;
     baseCalories?: number;
     foodId?: string;
+    date?: string;
   }) {
     await apiFetch("/api/macros", {
       method: "POST",
-      body: JSON.stringify({ ...payload, date }),
+      body: JSON.stringify({ ...payload, date: payload.date ?? date }),
     });
+  }
+
+  async function addFood(payload: Parameters<typeof postFood>[0]) {
+    await postFood(payload);
     await refreshAfterWrite();
   }
 
@@ -163,30 +190,100 @@ export function MacrosLogPanel({ date }: Props) {
     await apiFetch(`/api/macros?id=${id}`, { method: "DELETE" });
     if (editingFoodId === id) {
       setEditingFoodId(null);
-      setEditQuantity("");
+      setMacrosTouched(false);
     }
     await refreshAfterWrite();
   }
 
   function startEditFood(food: Food) {
+    const q = food.quantity && food.quantity > 0 ? food.quantity : 1;
     setEditingFoodId(food.id);
-    setEditQuantity(String(food.quantity ?? 1));
+    setEditName(food.name);
+    setEditQuantity(String(q));
+    setEditServingLabel(food.servingLabel ?? "1 serving");
+    // This log's per-portion macros (catalog serving, or last edit if changed).
+    setEditProtein(round1(food.proteinG / q));
+    setEditCarbs(round1(food.carbsG / q));
+    setEditFat(round1(food.fatG / q));
+    setMacrosTouched(false);
   }
 
-  async function saveFoodQuantity(id: string) {
+  function cancelEdit() {
+    setEditingFoodId(null);
+    setMacrosTouched(false);
+  }
+
+  async function saveFoodEdit(id: string) {
     const quantity = Number(editQuantity);
-    if (!quantity || quantity <= 0) return;
+    if (!editName.trim()) return;
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
     setSavingFoodId(id);
     try {
+      // Always apply form per-serving macros × portions so changing portions
+      // never pulls a different base, and P/C/F stay fixed unless edited.
       await apiFetch("/api/macros", {
         method: "PATCH",
-        body: JSON.stringify({ id, quantity }),
+        body: JSON.stringify({
+          id,
+          name: editName.trim(),
+          quantity,
+          proteinG: round1(editProtein * quantity),
+          carbsG: round1(editCarbs * quantity),
+          fatG: round1(editFat * quantity),
+          syncServing: macrosTouched,
+        }),
       });
-      setEditingFoodId(null);
-      setEditQuantity("");
+      cancelEdit();
       await refreshAfterWrite();
     } finally {
       setSavingFoodId(null);
+    }
+  }
+
+  async function copyFoodToToday(food: Food) {
+    setCopyingId(food.id);
+    setCopyHint("");
+    try {
+      await postFood({
+        name: food.name,
+        brand: food.brand,
+        proteinG: food.proteinG,
+        carbsG: food.carbsG,
+        fatG: food.fatG,
+        calories: food.calories,
+        quantity: food.quantity ?? 1,
+        savedFoodId: food.savedFoodId,
+        date: today,
+      });
+      await refreshAfterWrite();
+      setCopyHint(`Added “${food.name}” to today`);
+    } finally {
+      setCopyingId(null);
+    }
+  }
+
+  async function copyAllToToday() {
+    if (foods.length === 0) return;
+    setCopyingAll(true);
+    setCopyHint("");
+    try {
+      for (const food of foods) {
+        await postFood({
+          name: food.name,
+          brand: food.brand,
+          proteinG: food.proteinG,
+          carbsG: food.carbsG,
+          fatG: food.fatG,
+          calories: food.calories,
+          quantity: food.quantity ?? 1,
+          savedFoodId: food.savedFoodId,
+          date: today,
+        });
+      }
+      await refreshAfterWrite();
+      setCopyHint(`Copied ${foods.length} food${foods.length === 1 ? "" : "s"} to today`);
+    } finally {
+      setCopyingAll(false);
     }
   }
 
@@ -249,6 +346,12 @@ export function MacrosLogPanel({ date }: Props) {
     }, 400);
     return () => clearTimeout(t);
   }, [name, showManual]);
+
+  useEffect(() => {
+    if (!copyHint) return;
+    const t = setTimeout(() => setCopyHint(""), 3000);
+    return () => clearTimeout(t);
+  }, [copyHint]);
 
   return (
     <div className="space-y-6">
@@ -504,7 +607,22 @@ export function MacrosLogPanel({ date }: Props) {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm text-[var(--muted)]">Logged</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm text-[var(--muted)]">Logged</h2>
+          {isPastDate && foods.length > 0 ? (
+            <button
+              type="button"
+              disabled={copyingAll}
+              onClick={() => void copyAllToToday()}
+              className="text-xs text-[var(--accent)] hover:underline min-h-[44px] px-1 ml-auto"
+            >
+              {copyingAll ? "Copying…" : "Copy all to today"}
+            </button>
+          ) : null}
+        </div>
+        {copyHint ? (
+          <p className="text-xs text-[var(--accent)]">{copyHint}</p>
+        ) : null}
         {foods.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">No foods logged yet.</p>
         ) : (
@@ -516,13 +634,61 @@ export function MacrosLogPanel({ date }: Props) {
                 <li key={f.id} className="px-3 py-3 bg-[var(--surface)]">
                   {editing ? (
                     <div className="space-y-3">
-                      <p className="text-sm font-medium truncate">{f.name}</p>
+                      <label className="space-y-1 block">
+                        <span className="text-xs text-[var(--muted)]">Name</span>
+                        <input
+                          className={field}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                        />
+                      </label>
                       <p className="text-xs text-[var(--muted)]">
-                        {formatMacroShort(f)} at current amount
+                        Macros per {editServingLabel}
                       </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <label className="space-y-1 block">
+                          <span className="text-xs text-[var(--muted)]">P</span>
+                          <input
+                            className={field}
+                            type="number"
+                            step="0.1"
+                            value={editProtein || ""}
+                            onChange={(e) => {
+                              setMacrosTouched(true);
+                              setEditProtein(Number(e.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="space-y-1 block">
+                          <span className="text-xs text-[var(--muted)]">C</span>
+                          <input
+                            className={field}
+                            type="number"
+                            step="0.1"
+                            value={editCarbs || ""}
+                            onChange={(e) => {
+                              setMacrosTouched(true);
+                              setEditCarbs(Number(e.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="space-y-1 block">
+                          <span className="text-xs text-[var(--muted)]">F</span>
+                          <input
+                            className={field}
+                            type="number"
+                            step="0.1"
+                            value={editFat || ""}
+                            onChange={(e) => {
+                              setMacrosTouched(true);
+                              setEditFat(Number(e.target.value));
+                            }}
+                          />
+                        </label>
+                      </div>
                       <label className="space-y-1 block">
                         <span className="text-xs text-[var(--muted)]">
-                          Amount (servings)
+                          Portions of {editServingLabel}
                         </span>
                         <input
                           className={field}
@@ -534,21 +700,36 @@ export function MacrosLogPanel({ date }: Props) {
                           onChange={(e) => setEditQuantity(e.target.value)}
                         />
                       </label>
+                      {(() => {
+                        const q = Number(editQuantity);
+                        const qty = Number.isFinite(q) && q > 0 ? q : 1;
+                        const p = round1(editProtein * qty);
+                        const c = round1(editCarbs * qty);
+                        const fat = round1(editFat * qty);
+                        return (
+                          <p className="text-xs text-[var(--muted)]">
+                            This log:{" "}
+                            {formatMacroShort({
+                              proteinG: p,
+                              carbsG: c,
+                              fatG: fat,
+                              calories: Math.round(p * 4 + c * 4 + fat * 9),
+                            })}
+                          </p>
+                        );
+                      })()}
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={savingFoodId === f.id}
-                          onClick={() => void saveFoodQuantity(f.id)}
+                          onClick={() => void saveFoodEdit(f.id)}
                           className="text-xs text-[var(--accent)] font-medium min-h-[44px] px-3"
                         >
                           {savingFoodId === f.id ? "Saving…" : "Save"}
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingFoodId(null);
-                            setEditQuantity("");
-                          }}
+                          onClick={cancelEdit}
                           className="text-xs text-[var(--muted)] min-h-[44px] px-3"
                         >
                           Cancel
@@ -568,17 +749,31 @@ export function MacrosLogPanel({ date }: Props) {
                         <p className="text-sm font-medium truncate">{f.name}</p>
                         <p className="text-xs text-[var(--muted)]">
                           {f.brand ? `${f.brand} · ` : ""}
-                          {qty !== 1 ? `×${qty} · ` : ""}
+                          {f.servingLabel
+                            ? `${qty === 1 ? "" : `${qty} × `}${f.servingLabel} · `
+                            : qty !== 1
+                              ? `×${qty} · `
+                              : ""}
                           {formatMacroShort(f)}
                         </p>
                       </div>
-                      <div className="flex gap-2 shrink-0">
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        {isPastDate ? (
+                          <button
+                            type="button"
+                            disabled={copyingId === f.id || copyingAll}
+                            onClick={() => void copyFoodToToday(f)}
+                            className="text-xs px-3 py-2 rounded-md border border-[var(--border)] text-[var(--accent)] hover:border-[var(--accent)] min-h-[44px]"
+                          >
+                            {copyingId === f.id ? "Adding…" : "Use today"}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => startEditFood(f)}
                           className="text-xs px-3 py-2 rounded-md border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[44px]"
                         >
-                          Amount
+                          Edit
                         </button>
                         <button
                           type="button"
