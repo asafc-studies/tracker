@@ -7,7 +7,14 @@ import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { NutritionCoach } from "@/components/NutritionCoach";
 import { apiFetch } from "@/lib/api-fetch";
-import { getMacroWarnings } from "@/lib/macros";
+import {
+  getMacroWarnings,
+  progressRatio,
+  proteinBarFillClass,
+  proteinBarSegments,
+  proteinRemainingLabel,
+  remainingLabel,
+} from "@/lib/macros";
 import { queryKeys } from "@/lib/query-keys";
 import { formatSleepWindow, qualityLabel, sleepDeficitTip } from "@/lib/sleep";
 import { todayISODate } from "@/lib/tdee";
@@ -100,6 +107,19 @@ export function TodayDashboard() {
   const eeeToday = lifts?.eee?.caloriesBurned ?? 0;
   const setsToday = lifts?.stats?.totalSets ?? 0;
   const goalTarget = profile?.profile?.goalTarget?.trim() || null;
+  const targets = profile?.targets ?? null;
+  const proteinMin = targets?.proteinMinG ?? targets?.proteinG ?? 0;
+  const proteinGood = targets?.proteinGoodG ?? proteinMin;
+  const proteinMax = targets?.proteinMaxG ?? targets?.proteinG ?? 0;
+  const calorieTarget = targets?.calorieTarget ?? 0;
+  const proteinSegments = proteinBarSegments(
+    protein,
+    proteinMin,
+    proteinGood,
+    proteinMax,
+  );
+  const calWarned = calorieTarget > 0 && calories - calorieTarget >= 120;
+  const calRemaining = remainingLabel(calories, calorieTarget, " kcal");
   const sleepTip = sleep
     ? sleepDeficitTip({
         hours: sleep.hours,
@@ -160,6 +180,11 @@ export function TodayDashboard() {
                     g
                   </span>
                 </p>
+                {proteinMin > 0 ? (
+                  <p className="text-xs text-[var(--accent)] mt-0.5">
+                    {proteinRemainingLabel(protein, proteinMin, proteinMax)}
+                  </p>
+                ) : null}
               </div>
               <Link
                 href="/nutrition?panel=log"
@@ -168,21 +193,67 @@ export function TodayDashboard() {
                 Log food
               </Link>
             </div>
+            {proteinMax > 0 ? (
+              <div>
+                <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
+                  <span>Protein · 1.61–2.2 g/kg</span>
+                  <span>
+                    {Math.round(protein)}g
+                    {proteinMin > 0
+                      ? ` · floor ${proteinMin} · max ${proteinMax}`
+                      : ""}
+                  </span>
+                </div>
+                <div className="relative h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  {proteinSegments.map((seg) => (
+                    <div
+                      key={seg.key}
+                      className={`absolute top-0 bottom-0 transition-all duration-500 ${proteinBarFillClass(seg.key)}`}
+                      style={{
+                        left: `${seg.leftPct}%`,
+                        width: `${seg.widthPct}%`,
+                      }}
+                    />
+                  ))}
+                  <span
+                    className="absolute top-0 bottom-0 w-px bg-white/25"
+                    style={{ left: `${(proteinMin / proteinMax) * 100}%` }}
+                    title="1.61 g/kg floor"
+                  />
+                  <span
+                    className="absolute top-0 bottom-0 w-px bg-white/40"
+                    style={{ left: `${(proteinGood / proteinMax) * 100}%` }}
+                    title="1.85 g/kg strong zone"
+                  />
+                </div>
+              </div>
+            ) : null}
+            {calorieTarget > 0 ? (
+              <div>
+                <div className="flex justify-between text-xs text-[var(--muted)] mb-1">
+                  <span>Calories</span>
+                  <span className={calWarned ? "text-[var(--warn)]" : ""}>
+                    {Math.round(calories)}/{calorieTarget}
+                    {calRemaining ? ` · ${calRemaining}` : ""}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-500 ${
+                      calWarned
+                        ? "bg-[var(--warn)]"
+                        : "bg-[var(--accent)]/70"
+                    }`}
+                    style={{
+                      width: `${Math.min(100, progressRatio(calories, calorieTarget) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
-                Calories
-              </p>
-              <p className="text-xl font-medium mt-1">
-                {Math.round(calories)}
-                <span className="text-sm text-[var(--muted)] font-normal">
-                  {" "}
-                  kcal
-                </span>
-              </p>
-            </div>
             <div>
               <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
                 Weight

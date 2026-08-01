@@ -58,7 +58,7 @@
       "name": "Log weight",
       "short_name": "Weight",
       "description": "Update body weight",
-      "url": "/exercises?panel=weight",
+      "url": "/history",
       "icons": [
         {
           "src": "/icons/icon-192.png",

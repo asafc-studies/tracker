@@ -130,8 +130,12 @@ export function calcTargets(input: {
   };
 }
 
+/** Local calendar YYYY-MM-DD (not UTC — avoids evening day-drift). */
 export function todayISODate(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export type ProfileForTargets = {
@@ -169,10 +173,21 @@ export function resolveTargets(profile: ProfileForTargets) {
   });
   const range = proteinRangeFromWeight(profile.weightKg);
 
+  const calorieTarget =
+    profile.calorieTargetOverride ?? computed.calorieTarget;
+  const proteinG = profile.proteinTargetOverride ?? computed.proteinG;
+  const proteinKcal = proteinG * 4;
+  const fatKcal = calorieTarget * FAT_CALORIE_FRACTION;
+  const fatG = Math.round(fatKcal / 9);
+  const carbKcal = Math.max(0, calorieTarget - proteinKcal - fatG * 9);
+  const carbsG = Math.round(carbKcal / 4);
+
   return {
     ...computed,
-    calorieTarget: profile.calorieTargetOverride ?? computed.calorieTarget,
-    proteinG: profile.proteinTargetOverride ?? computed.proteinG,
+    calorieTarget,
+    proteinG,
+    carbsG,
+    fatG,
     proteinMinG: range.minG,
     proteinGoodG: range.goodG,
     proteinMaxG: range.maxG,

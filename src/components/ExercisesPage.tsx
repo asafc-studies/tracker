@@ -107,7 +107,7 @@ function todayFriendly(date: string): string {
   if (date === today) return "today";
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  if (date === yesterday.toISOString().slice(0, 10)) return "yesterday";
+  if (date === todayISODate(yesterday)) return "yesterday";
   return date;
 }
 

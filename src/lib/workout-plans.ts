@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { getExercise, type ExerciseGroup } from "@/lib/exercises";
 
@@ -30,11 +30,10 @@ async function findInProgressSessionId(userId: string) {
   const db = await getDb();
   const recent = await db.query.workoutSessions.findMany({
     where: eq(schema.workoutSessions.userId, userId),
-    orderBy: [asc(schema.workoutSessions.createdAt)],
-    limit: 40,
+    orderBy: [desc(schema.workoutSessions.createdAt)],
+    limit: 20,
   });
-  for (let i = recent.length - 1; i >= 0; i--) {
-    const s = recent[i];
+  for (const s of recent) {
     const started = s.startedAt != null;
     const ended = s.endedAt != null;
     const hasDuration =

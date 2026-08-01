@@ -266,23 +266,7 @@ export async function removeStandingItem(userId: string, id: string) {
   const item = rows[0];
   if (!item) return null;
 
-  const checks = await db
-    .select()
-    .from(schema.dailyMenuChecks)
-    .where(eq(schema.dailyMenuChecks.standingItemId, id));
-  for (const check of checks) {
-    if (check.foodLogId) {
-      await db
-        .delete(schema.foodLogs)
-        .where(
-          and(
-            eq(schema.foodLogs.id, check.foodLogId),
-            eq(schema.foodLogs.userId, userId),
-          ),
-        );
-    }
-  }
-
+  // Checks cascade-delete; leave historical food logs intact.
   await db
     .delete(schema.standingMenuItems)
     .where(eq(schema.standingMenuItems.id, id));
@@ -380,5 +364,5 @@ export async function toggleStandingCheck(
 export function nextISODate(from = todayISODate()) {
   const d = new Date(`${from}T12:00:00`);
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return todayISODate(d);
 }

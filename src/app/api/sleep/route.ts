@@ -13,7 +13,7 @@ function rangeStart(range: string): string | null {
   const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return todayISODate(d);
 }
 
 function parseQuality(raw: unknown) {
