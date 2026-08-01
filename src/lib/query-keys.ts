@@ -7,5 +7,6 @@ export const queryKeys = {
   history: (tab: string, range: string) => ["history", tab, range] as const,
   menuDaily: (date: string) => ["menu", "daily", date] as const,
   menuTemplates: ["menu", "templates"] as const,
+  recipes: ["nutrition", "recipes"] as const,
   workoutPlans: ["workout-plans"] as const,
 } as const;

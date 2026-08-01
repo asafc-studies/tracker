@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/AppShell";
 import { MacrosGuesserPanel } from "@/components/MacrosGuesserPanel";
 import { MacrosLogPanel } from "@/components/MacrosLogPanel";
-import { MenuDailyPanel, MenuTemplatesPanel } from "@/components/MenuPanels";
+import { MenuDailyPanel } from "@/components/MenuPanels";
+import { NutritionIdeasAi } from "@/components/NutritionIdeasAi";
 import {
   NutritionPanelNav,
   nutritionFieldClass,
@@ -73,12 +74,7 @@ function NutritionContent() {
 
       {panel === "log" ? <MacrosLogPanel date={date} /> : null}
       {panel === "menu" ? <MenuDailyPanel date={date} /> : null}
-      {panel === "templates" ? (
-        <MenuTemplatesPanel
-          date={date}
-          onApplied={() => setPanel("menu")}
-        />
-      ) : null}
+      {panel === "templates" ? <NutritionIdeasAi date={date} /> : null}
       {panel === "guesser" ? <MacrosGuesserPanel date={date} /> : null}
     </>
   );

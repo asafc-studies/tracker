@@ -227,6 +227,26 @@ const INCREMENTAL = [
   `CREATE INDEX IF NOT EXISTS sleep_logs_user_date ON sleep_logs(userId, date)`,
   `ALTER TABLE sleep_logs ADD COLUMN fromTime TEXT`,
   `ALTER TABLE sleep_logs ADD COLUMN untilTime TEXT`,
+  `CREATE TABLE IF NOT EXISTS recipes (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    servings REAL NOT NULL DEFAULT 1,
+    servingAmount REAL NOT NULL DEFAULT 100,
+    servingUnit TEXT NOT NULL DEFAULT 'g',
+    mealSlot TEXT DEFAULT 'snack',
+    proteinG REAL NOT NULL DEFAULT 0,
+    carbsG REAL NOT NULL DEFAULT 0,
+    fatG REAL NOT NULL DEFAULT 0,
+    calories REAL NOT NULL DEFAULT 0,
+    ingredientsJson TEXT NOT NULL DEFAULT '[]',
+    stepsJson TEXT NOT NULL DEFAULT '[]',
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS recipes_user ON recipes(userId)`,
+  `ALTER TABLE recipes ADD COLUMN servingLabel TEXT DEFAULT '1 serving'`,
+  `ALTER TABLE recipes ADD COLUMN servingAmount REAL NOT NULL DEFAULT 100`,
+  `ALTER TABLE recipes ADD COLUMN servingUnit TEXT NOT NULL DEFAULT 'g'`,
 ];
 
 export async function ensureMigrated(client: Client) {

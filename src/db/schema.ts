@@ -214,6 +214,37 @@ export const menuTemplateItems = sqliteTable("menu_template_items", {
   sortOrder: integer("sortOrder").notNull().default(0),
 });
 
+/** AI / manual recipes with ingredients + steps (JSON) and per-serving macros. */
+export const recipes = sqliteTable("recipes", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  servings: real("servings").notNull().default(1),
+  /** Size of one serving; macros are for this amount. */
+  servingAmount: real("servingAmount").notNull().default(100),
+  servingUnit: text("servingUnit", { enum: ["g", "ml"] })
+    .notNull()
+    .default("g"),
+  mealSlot: text("mealSlot", {
+    enum: ["breakfast", "lunch", "dinner", "snack"],
+  }).default("snack"),
+  proteinG: real("proteinG").notNull().default(0),
+  carbsG: real("carbsG").notNull().default(0),
+  fatG: real("fatG").notNull().default(0),
+  calories: real("calories").notNull().default(0),
+  /** JSON: [{ name, amount }] */
+  ingredientsJson: text("ingredientsJson").notNull().default("[]"),
+  /** JSON: [{ text }] */
+  stepsJson: text("stepsJson").notNull().default("[]"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const dailyMenuItems = sqliteTable("daily_menu_items", {
   id: text("id")
     .primaryKey()
@@ -402,6 +433,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   foodLogs: many(foodLogs),
   savedFoods: many(savedFoods),
   menuTemplates: many(menuTemplates),
+  recipes: many(recipes),
   dailyMenuItems: many(dailyMenuItems),
   standingMenuItems: many(standingMenuItems),
   dailyMenuChecks: many(dailyMenuChecks),
@@ -440,6 +472,13 @@ export const menuTemplateItemsRelations = relations(
     }),
   }),
 );
+
+export const recipesRelations = relations(recipes, ({ one }) => ({
+  user: one(users, {
+    fields: [recipes.userId],
+    references: [users.id],
+  }),
+}));
 
 export const workoutSessionsRelations = relations(
   workoutSessions,
