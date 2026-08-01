@@ -1,6 +1,6 @@
 "use client";
 
-export type NutritionPanel = "log" | "menu" | "templates";
+export type NutritionPanel = "log" | "menu" | "templates" | "guesser";
 
 export const NUTRITION_PANELS: Array<{
   id: NutritionPanel;
@@ -10,6 +10,7 @@ export const NUTRITION_PANELS: Array<{
   { id: "log", label: "Log food", short: "Log" },
   { id: "menu", label: "Daily menu", short: "Menu" },
   { id: "templates", label: "Meal ideas", short: "Ideas" },
+  { id: "guesser", label: "Macros guesser", short: "Guess" },
 ];
 
 export function NutritionPanelNav({

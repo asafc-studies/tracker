@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/AppShell";
+import { MacrosGuesserPanel } from "@/components/MacrosGuesserPanel";
 import { MacrosLogPanel } from "@/components/MacrosLogPanel";
 import { MenuDailyPanel, MenuTemplatesPanel } from "@/components/MenuPanels";
 import {
@@ -19,7 +20,9 @@ function clampDate(d: string): string {
 
 function normalizePanel(p: string | null): NutritionPanel {
   if (p === "macros") return "log";
-  if (p === "menu" || p === "templates" || p === "log") return p;
+  if (p === "menu" || p === "templates" || p === "log" || p === "guesser") {
+    return p;
+  }
   return "log";
 }
 
@@ -76,6 +79,7 @@ function NutritionContent() {
           onApplied={() => setPanel("menu")}
         />
       ) : null}
+      {panel === "guesser" ? <MacrosGuesserPanel date={date} /> : null}
     </>
   );
 }

@@ -1,6 +1,6 @@
 /**
- * Shared chat completions for GitHub Models / Gemini / OpenAI.
- * Used by menu improve, today coaching, and workout tips.
+ * Shared chat completions for GitHub Models / Gemini / OpenAI / Mistral.
+ * Used by menu improve, today coaching, macros guesser, and workout tips.
  */
 
 export type ChatMessage = {
@@ -8,7 +8,7 @@ export type ChatMessage = {
   content: string;
 };
 
-export type ProviderId = "github" | "gemini" | "openai";
+export type ProviderId = "github" | "gemini" | "openai" | "mistral";
 
 export type ResolvedProvider = {
   id: ProviderId;
@@ -26,12 +26,17 @@ function env(...names: string[]) {
 
 /** Prefer AI_PROVIDER / AI_MODEL; fall back to AI_MENU_* for existing setups. */
 export function resolveAiProvider(): ResolvedProvider {
-  const forced = env("AI_PROVIDER", "AI_MENU_PROVIDER").toLowerCase() as
-    | ProviderId
-    | "";
+  const forcedRaw = env("AI_PROVIDER", "AI_MENU_PROVIDER").toLowerCase();
+  // Accept common typo "ministral" / "minstral" as mistral.
+  const forced = (
+    forcedRaw === "ministral" || forcedRaw === "minstral"
+      ? "mistral"
+      : forcedRaw
+  ) as ProviderId | "";
 
   const githubKey = env("GITHUB_MODELS_TOKEN", "GITHUB_TOKEN");
   const geminiKey = env("GEMINI_API_KEY");
+  const mistralKey = env("MISTRAL_API_KEY");
   const openaiKey = env("OPENAI_API_KEY", "OPENAI_KEY", "OPENAIKEY");
 
   if (forced === "github" || (!forced && githubKey)) {
@@ -62,6 +67,19 @@ export function resolveAiProvider(): ResolvedProvider {
     };
   }
 
+  if (forced === "mistral" || (!forced && mistralKey)) {
+    if (!mistralKey) {
+      throw new Error("AI_PROVIDER=mistral but MISTRAL_API_KEY is missing.");
+    }
+    return {
+      id: "mistral",
+      apiKey: mistralKey,
+      model:
+        env("AI_MODEL", "AI_MENU_MODEL", "MISTRAL_MODEL") ||
+        "mistral-small-latest",
+    };
+  }
+
   if (forced === "openai" || openaiKey) {
     if (!openaiKey) {
       throw new Error("AI_PROVIDER=openai but OPENAI_API_KEY is missing.");
@@ -75,7 +93,7 @@ export function resolveAiProvider(): ResolvedProvider {
   }
 
   throw new Error(
-    "No AI key found. Prefer free GitHub Models: create a PAT with models:read and set GITHUB_MODELS_TOKEN in .env.local (or use GEMINI_API_KEY). Restart the server after saving.",
+    "No AI key found. Set MISTRAL_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in .env.local (and AI_PROVIDER if you have more than one). Restart the server after saving.",
   );
 }
 
@@ -226,6 +244,16 @@ export async function aiChatJson(opts: {
       model: provider.model,
       system: opts.system,
       user: opts.user,
+      temperature: opts.temperature,
+    });
+  } else if (provider.id === "mistral") {
+    content = await chatCompletionsOpenAICompatible({
+      url: "https://api.mistral.ai/v1/chat/completions",
+      apiKey: provider.apiKey,
+      model: provider.model,
+      messages,
+      providerLabel: "Mistral",
+      useJsonObjectFormat: true,
       temperature: opts.temperature,
     });
   } else {
