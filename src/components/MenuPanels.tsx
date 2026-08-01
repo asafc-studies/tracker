@@ -409,7 +409,10 @@ export function MenuDailyPanel({ date }: { date: string }) {
       ) : null}
 
       {showAddFood ? (
-        <FoodSearch onSelect={(f, q, ml) => void addFoodToMenu(f, q, ml)} />
+        <FoodSearch
+          confirmLabel="Add to menu"
+          onSelect={(f, q, ml) => void addFoodToMenu(f, q, ml)}
+        />
       ) : null}
 
       {items.length === 0 ? (

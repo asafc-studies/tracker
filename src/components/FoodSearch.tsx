@@ -8,9 +8,14 @@ import { formatMacroShort } from "@/lib/macros";
 type Props = {
   onSelect: (food: FoodSearchResult, quantity: number, mlAmount?: number) => void;
   onManual?: () => void;
+  confirmLabel?: string;
 };
 
-export function FoodSearch({ onSelect, onManual }: Props) {
+export function FoodSearch({
+  onSelect,
+  onManual,
+  confirmLabel = "Add to log",
+}: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FoodSearchResult[]>([]);
   const [recent, setRecent] = useState<FoodSearchResult[]>([]);
@@ -475,7 +480,7 @@ export function FoodSearch({ onSelect, onManual }: Props) {
               }
               className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50"
             >
-              Add to log
+              {confirmLabel}
             </button>
             <button
               type="button"
