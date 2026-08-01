@@ -138,6 +138,19 @@ export async function GET(req: Request) {
     });
   }
 
+  if (tab === "sleep") {
+    const rows = await db.query.sleepLogs.findMany({
+      where: start
+        ? and(
+            eq(schema.sleepLogs.userId, authz.userId),
+            gte(schema.sleepLogs.date, start),
+          )
+        : eq(schema.sleepLogs.userId, authz.userId),
+      orderBy: [schema.sleepLogs.date],
+    });
+    return jsonOk({ tab, range, rows });
+  }
+
   // Workout EEE (exercise energy expenditure) — insight only
   const sessions = await db.query.workoutSessions.findMany({
     where: start

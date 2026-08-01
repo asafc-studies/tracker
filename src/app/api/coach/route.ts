@@ -3,8 +3,8 @@ import { coachWithAI, type CoachScope } from "@/lib/ai-coach";
 
 /**
  * POST /api/coach
- * Shared AI coaching for today summary or workout tips.
- * Body: { scope: "today" | "workout", userRequest?: string }
+ * Shared AI coaching for today summary, workout tips, or sleep.
+ * Body: { scope: "today" | "workout" | "sleep", userRequest?: string }
  */
 export async function POST(req: Request) {
   const authz = await requireUser();
@@ -13,8 +13,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const scope = String(body?.scope || "today") as CoachScope;
-    if (scope !== "today" && scope !== "workout") {
-      return jsonError('scope must be "today" or "workout"');
+    if (scope !== "today" && scope !== "workout" && scope !== "sleep") {
+      return jsonError('scope must be "today", "workout", or "sleep"');
     }
     const userRequest =
       typeof body?.userRequest === "string"

@@ -46,6 +46,12 @@ function NavIcon({ name }: { name: string }) {
           <path d="M12 7v5l3 2" />
         </svg>
       );
+    case "sleep":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+          <path d="M21 14.5A8.5 8.5 0 1 1 12.5 4 7 7 0 0 0 21 14.5z" />
+        </svg>
+      );
     default:
       return (
         <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -61,7 +67,7 @@ export function MobileNav() {
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-5 h-16">
+      <ul className="grid grid-cols-6 h-16">
         {NAV_ITEMS.map((item) => {
           const active =
             item.href === "/"

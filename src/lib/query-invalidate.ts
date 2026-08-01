@@ -30,6 +30,13 @@ export async function invalidateAfterWeight(queryClient: QueryClient) {
   ]);
 }
 
+export async function invalidateAfterSleep(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["sleep"] }),
+    queryClient.invalidateQueries({ queryKey: ["history"] }),
+  ]);
+}
+
 export async function invalidateAfterMenu(
   queryClient: QueryClient,
   date?: string,

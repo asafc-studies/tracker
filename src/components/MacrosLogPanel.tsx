@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
+import { SleepUndersleepTip } from "@/components/SleepUndersleepTip";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { scaleFood } from "@/lib/food-reference";
@@ -528,6 +529,8 @@ export function MacrosLogPanel({ date }: Props) {
       </section>
 
       <MacroWarningsBanner warnings={warnings} />
+
+      <SleepUndersleepTip kind="deficit" className="text-xs text-[var(--muted)]" />
 
       <section>
         <h2 className="text-sm text-[var(--muted)] mb-3">Add food</h2>

@@ -7,13 +7,15 @@ import { AppShell } from "@/components/shell/AppShell";
 import { WeightChart } from "@/components/charts/WeightChart";
 import { NutritionChart } from "@/components/charts/NutritionChart";
 import { EeeBurnChart } from "@/components/charts/EeeBurnChart";
+import { SleepChart } from "@/components/charts/SleepChart";
 import { apiFetch } from "@/lib/api-fetch";
 import { exerciseDisplayName, formatSetWeight } from "@/lib/exercises";
-import { invalidateAfterWeight } from "@/lib/query-invalidate";
+import { invalidateAfterSleep, invalidateAfterWeight } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
+import { formatSleepWindow, qualityLabel, SLEEP_HOURS_MIN } from "@/lib/sleep";
 import { todayISODate } from "@/lib/tdee";
 
-type Tab = "weight" | "nutrition" | "burn";
+type Tab = "weight" | "nutrition" | "burn" | "sleep";
 type Range = "7d" | "30d" | "90d" | "all";
 
 type SessionSet = {
@@ -46,8 +48,18 @@ type WeightRow = {
   note?: string | null;
 };
 
+type SleepRow = {
+  id: string;
+  date: string;
+  fromTime?: string | null;
+  untilTime?: string | null;
+  hours: number;
+  quality: number;
+  note?: string | null;
+};
+
 type HistoryPayload = {
-  rows?: WeightRow[];
+  rows?: WeightRow[] | SleepRow[];
   days?: Array<{ date: string; proteinG: number; calories: number }>;
   proteinTarget?: number | null;
   series?: EeeDay[];
@@ -67,6 +79,13 @@ export function HistoryPage() {
     weightKg: string;
     date: string;
   } | null>(null);
+  const [sleepEditDraft, setSleepEditDraft] = useState<{
+    from: string;
+    until: string;
+    quality: string;
+    date: string;
+  } | null>(null);
+  const [savingSleep, setSavingSleep] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const apiTab = tab === "burn" ? "lifts" : tab;
@@ -78,7 +97,10 @@ export function HistoryPage() {
       ),
   });
 
-  const weightRows = historyQuery.data?.rows ?? [];
+  const weightRows =
+    tab === "weight" ? ((historyQuery.data?.rows as WeightRow[]) ?? []) : [];
+  const sleepRows =
+    tab === "sleep" ? ((historyQuery.data?.rows as SleepRow[]) ?? []) : [];
   const nutritionDays = historyQuery.data?.days ?? [];
   const proteinTarget = historyQuery.data?.proteinTarget ?? null;
   const eeeSeries = historyQuery.data?.series ?? [];
@@ -88,6 +110,12 @@ export function HistoryPage() {
   useEffect(() => {
     setQuickDate(today);
   }, [today]);
+
+  useEffect(() => {
+    setEditingId(null);
+    setEditDraft(null);
+    setSleepEditDraft(null);
+  }, [tab]);
 
   async function logWeight(e: React.FormEvent) {
     e.preventDefault();
@@ -150,6 +178,47 @@ export function HistoryPage() {
     }
   }
 
+  async function saveSleepEdit(id: string) {
+    if (!sleepEditDraft) return;
+    const quality = Number(sleepEditDraft.quality);
+    if (!sleepEditDraft.from || !sleepEditDraft.until) return;
+    if (!Number.isFinite(quality) || quality < 1 || quality > 5) return;
+    setSavingSleep(true);
+    try {
+      await apiFetch("/api/sleep", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id,
+          from: sleepEditDraft.from,
+          until: sleepEditDraft.until,
+          quality,
+          date: sleepEditDraft.date,
+        }),
+      });
+      setEditingId(null);
+      setSleepEditDraft(null);
+      await invalidateAfterSleep(queryClient);
+    } finally {
+      setSavingSleep(false);
+    }
+  }
+
+  async function deleteSleep(id: string) {
+    setSavingSleep(true);
+    try {
+      await apiFetch(`/api/sleep?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (editingId === id) {
+        setEditingId(null);
+        setSleepEditDraft(null);
+      }
+      await invalidateAfterSleep(queryClient);
+    } finally {
+      setSavingSleep(false);
+    }
+  }
+
   const tabBtn = (id: Tab, label: string) => (
     <button
       key={id}
@@ -173,6 +242,7 @@ export function HistoryPage() {
       <div className="flex flex-wrap gap-2 mb-4">
         {tabBtn("weight", "Weight")}
         {tabBtn("nutrition", "Nutrition")}
+        {tabBtn("sleep", "Sleep")}
         {tabBtn("burn", "Burn (EEE)")}
       </div>
 
@@ -246,6 +316,17 @@ export function HistoryPage() {
         </p>
       ) : null}
 
+      {tab === "sleep" ? (
+        <p className="text-xs text-[var(--muted)] mb-3 leading-relaxed">
+          Adult band {SLEEP_HOURS_MIN}–9h. Consistency matters more than one
+          catch-up night. Log nights on the{" "}
+          <Link href="/sleep" className="text-[var(--accent)] hover:underline">
+            Sleep
+          </Link>{" "}
+          page.
+        </p>
+      ) : null}
+
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 mb-6">
         {loading ? (
           <p className="text-sm text-[var(--muted)] py-10 text-center">
@@ -258,6 +339,8 @@ export function HistoryPage() {
             data={nutritionDays}
             proteinTarget={proteinTarget}
           />
+        ) : tab === "sleep" ? (
+          <SleepChart data={sleepRows} />
         ) : (
           <EeeBurnChart data={eeeSeries} />
         )}
@@ -356,6 +439,150 @@ export function HistoryPage() {
                             type="button"
                             disabled={savingWeight}
                             onClick={() => void deleteWeight(row.id)}
+                            className="text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px]"
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {tab === "sleep" ? (
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)] px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]/60">
+            Entries
+          </p>
+          {sleepRows.length === 0 ? (
+            <p className="text-sm text-[var(--muted)] py-6 text-center">
+              No sleep entries in this range.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              {[...sleepRows].reverse().map((row) => {
+                const editing = editingId === row.id;
+                const draft = editing
+                  ? sleepEditDraft ?? {
+                      from: row.fromTime ?? "",
+                      until: row.untilTime ?? "",
+                      quality: String(row.quality),
+                      date: row.date,
+                    }
+                  : null;
+                return (
+                  <li key={row.id} className="px-4 py-2.5 text-sm">
+                    {editing && draft ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <input
+                            className={field}
+                            type="date"
+                            max={today}
+                            value={draft.date}
+                            onChange={(e) =>
+                              setSleepEditDraft({
+                                ...draft,
+                                date: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className={field}
+                            type="time"
+                            value={draft.from}
+                            onChange={(e) =>
+                              setSleepEditDraft({
+                                ...draft,
+                                from: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className={field}
+                            type="time"
+                            value={draft.until}
+                            onChange={(e) =>
+                              setSleepEditDraft({
+                                ...draft,
+                                until: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className={field}
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={draft.quality}
+                            onChange={(e) =>
+                              setSleepEditDraft({
+                                ...draft,
+                                quality: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={savingSleep}
+                            onClick={() => void saveSleepEdit(row.id)}
+                            className="text-xs text-[var(--accent)] font-medium min-h-[36px]"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null);
+                              setSleepEditDraft(null);
+                            }}
+                            className="text-xs text-[var(--muted)] min-h-[36px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[var(--muted)]">{row.date}</span>
+                        <div className="flex items-center gap-2">
+                          <span>
+                            {formatSleepWindow(
+                              row.fromTime,
+                              row.untilTime,
+                              row.hours,
+                            )}{" "}
+                            · {qualityLabel(row.quality)}
+                            {row.hours < SLEEP_HOURS_MIN ? (
+                              <span className="text-[var(--warn)]"> · short</span>
+                            ) : null}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(row.id);
+                              setSleepEditDraft({
+                                from: row.fromTime ?? "",
+                                until: row.untilTime ?? "",
+                                quality: String(row.quality),
+                                date: row.date,
+                              });
+                            }}
+                            className="text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px]"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingSleep}
+                            onClick={() => void deleteSleep(row.id)}
                             className="text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px]"
                           >
                             Del

@@ -9,6 +9,7 @@ import { NutritionCoach } from "@/components/NutritionCoach";
 import { apiFetch } from "@/lib/api-fetch";
 import { getMacroWarnings } from "@/lib/macros";
 import { queryKeys } from "@/lib/query-keys";
+import { formatSleepWindow, qualityLabel, sleepDeficitTip } from "@/lib/sleep";
 import { todayISODate } from "@/lib/tdee";
 
 type ProfilePayload = {
@@ -69,11 +70,29 @@ export function TodayDashboard() {
       ),
   });
 
+  const sleepQuery = useQuery({
+    queryKey: queryKeys.sleep(today),
+    queryFn: () =>
+      apiFetch<{
+        row: {
+          hours: number;
+          quality: number;
+          fromTime?: string | null;
+          untilTime?: string | null;
+          note?: string | null;
+        } | null;
+      }>(`/api/sleep?date=${encodeURIComponent(today)}`),
+  });
+
   const loading =
-    profileQuery.isLoading || macrosQuery.isLoading || liftsQuery.isLoading;
+    profileQuery.isLoading ||
+    macrosQuery.isLoading ||
+    liftsQuery.isLoading ||
+    sleepQuery.isLoading;
   const profile = profileQuery.data ?? null;
   const macros = macrosQuery.data ?? null;
   const lifts = liftsQuery.data ?? null;
+  const sleep = sleepQuery.data?.row ?? null;
 
   const protein = macros?.totals.proteinG ?? 0;
   const calories = macros?.totals.calories ?? 0;
@@ -81,6 +100,14 @@ export function TodayDashboard() {
   const eeeToday = lifts?.eee?.caloriesBurned ?? 0;
   const setsToday = lifts?.stats?.totalSets ?? 0;
   const goalTarget = profile?.profile?.goalTarget?.trim() || null;
+  const sleepTip = sleep
+    ? sleepDeficitTip({
+        hours: sleep.hours,
+        quality: sleep.quality,
+        deficitKcal: profile?.targets?.deficit,
+        proteinMinG: profile?.targets?.proteinMinG,
+      })
+    : null;
 
   return (
     <AppShell title="Today">
@@ -186,7 +213,41 @@ export function TodayDashboard() {
               </p>
               <p className="text-xl font-medium mt-1">{setsToday || "—"}</p>
             </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+                Last night
+              </p>
+              <p className="text-xl font-medium mt-1">
+                {sleep ? (
+                  <span className="text-base leading-snug">
+                    {formatSleepWindow(
+                      sleep.fromTime,
+                      sleep.untilTime,
+                      sleep.hours,
+                    )}
+                    <span className="text-sm text-[var(--muted)] font-normal">
+                      {" "}
+                      · {qualityLabel(sleep.quality)}
+                    </span>
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </p>
+              <Link
+                href="/sleep"
+                className="text-xs text-[var(--accent)] hover:underline"
+              >
+                {sleep ? "Update sleep" : "Log sleep"}
+              </Link>
+            </div>
           </section>
+
+          {sleepTip ? (
+            <p className="text-xs text-[var(--warn)] leading-relaxed -mt-4">
+              {sleepTip}
+            </p>
+          ) : null}
 
           <AiCoachPanel
             scope="today"

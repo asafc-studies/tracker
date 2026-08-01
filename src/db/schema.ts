@@ -104,6 +104,28 @@ export const weightLogs = sqliteTable("weight_logs", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+/** Sleep that ended on `date` (morning-of / until date). One row per user/day. */
+export const sleepLogs = sqliteTable("sleep_logs", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  /** Bedtime as HH:MM (may be previous calendar evening). */
+  fromTime: text("fromTime"),
+  /** Wake time as HH:MM on `date`. */
+  untilTime: text("untilTime"),
+  /** Derived duration; kept for charts/tips. */
+  hours: real("hours").notNull(),
+  quality: integer("quality").notNull().default(3),
+  note: text("note"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const savedFoods = sqliteTable("saved_foods", {
   id: text("id")
     .primaryKey()
@@ -376,6 +398,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   accounts: many(accounts),
   sessions: many(sessions),
   weightLogs: many(weightLogs),
+  sleepLogs: many(sleepLogs),
   foodLogs: many(foodLogs),
   savedFoods: many(savedFoods),
   menuTemplates: many(menuTemplates),

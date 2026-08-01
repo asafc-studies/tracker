@@ -2,6 +2,8 @@ export const queryKeys = {
   profile: ["profile"] as const,
   macros: (date: string) => ["macros", date] as const,
   lifts: (date: string) => ["lifts", date] as const,
+  sleep: (date: string) => ["sleep", date] as const,
+  sleepList: (range: string) => ["sleep", "list", range] as const,
   history: (tab: string, range: string) => ["history", tab, range] as const,
   menuDaily: (date: string) => ["menu", "daily", date] as const,
   menuTemplates: ["menu", "templates"] as const,

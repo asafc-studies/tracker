@@ -7,6 +7,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { BodyHeatmap } from "@/components/BodyHeatmap";
 import { MuscleMap } from "@/components/MuscleMap";
+import { SleepUndersleepTip } from "@/components/SleepUndersleepTip";
 import {
   DisplayNumber,
   ExercisePanelNav,
@@ -246,6 +247,7 @@ export function ExercisesPage() {
 
   const overviewPanel = (
     <div className="space-y-4">
+      <SleepUndersleepTip kind="training" />
       {stats && stats.totalSets > 0 ? (
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           <MetricTile label="Sets" value={String(stats.totalSets)} />
@@ -545,12 +547,15 @@ export function ExercisesPage() {
       ) : null}
       {panel === "plan" ? <WorkoutPlannerPanel /> : null}
       {panel === "tips" ? (
-        <AiCoachPanel
-          scope="workout"
-          title="Workout tips"
-          buttonLabel="Get workout tips"
-          placeholder='Optional: e.g. "more pull volume" or "knee-friendly cardio"'
-        />
+        <div className="space-y-4">
+          <SleepUndersleepTip kind="training" />
+          <AiCoachPanel
+            scope="workout"
+            title="Workout tips"
+            buttonLabel="Get workout tips"
+            placeholder='Optional: e.g. "more pull volume" or "knee-friendly cardio"'
+          />
+        </div>
       ) : null}
       {panel === "history" ? historyPanel : null}
     </AppShell>

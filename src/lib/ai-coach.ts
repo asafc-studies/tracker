@@ -12,7 +12,7 @@ import {
 } from "@/lib/tdee";
 import { listWorkoutPlans } from "@/lib/workout-plans";
 
-export type CoachScope = "today" | "workout";
+export type CoachScope = "today" | "workout" | "sleep";
 
 export type CoachAdvice = {
   summary: string;
@@ -278,6 +278,15 @@ async function buildTodayContext(userId: string) {
     limit: 6,
   });
 
+  const sleepLogs = await db.query.sleepLogs.findMany({
+    where: and(
+      eq(schema.sleepLogs.userId, userId),
+      gte(schema.sleepLogs.date, since),
+    ),
+    orderBy: [desc(schema.sleepLogs.date)],
+    limit: 14,
+  });
+
   const recentWorkouts = sessions.slice(0, 8).map((s) => ({
     date: s.date,
     name: s.name || "Workout",
@@ -285,6 +294,15 @@ async function buildTodayContext(userId: string) {
     km: s.distanceKm ?? null,
     lifts: compactLifts(s.sets ?? [], 8),
   }));
+
+  const lastSleep = sleepLogs[0] ?? null;
+  const sleep7 = sleepLogs.filter((s) => s.date >= daysAgoISO(7));
+  const avgHours7 =
+    sleep7.length > 0
+      ? Math.round(
+          (sleep7.reduce((a, s) => a + s.hours, 0) / sleep7.length) * 10,
+        ) / 10
+      : null;
 
   return {
     goalTarget,
@@ -329,6 +347,17 @@ async function buildTodayContext(userId: string) {
       nutritionNote: todayPartial
         ? "Day not finished — partial intake only; do not call this a severe deficit."
         : "Most of today's intake appears logged.",
+      lastNightSleep: lastSleep
+        ? {
+            date: lastSleep.date,
+            from: lastSleep.fromTime,
+            until: lastSleep.untilTime,
+            hours: lastSleep.hours,
+            quality: lastSleep.quality,
+            note: lastSleep.note,
+            belowSeven: lastSleep.hours < 7,
+          }
+        : null,
     },
     recentNutrition,
     recentWorkouts,
@@ -336,6 +365,41 @@ async function buildTodayContext(userId: string) {
       date: w.date,
       weightKg: w.weightKg,
     })),
+    recentSleep: sleepLogs.slice(0, 10).map((s) => ({
+      date: s.date,
+      from: s.fromTime,
+      until: s.untilTime,
+      hours: s.hours,
+      quality: s.quality,
+      note: s.note,
+    })),
+    sleepSummary: {
+      avgHoursLast7: avgHours7,
+      nightsBelow7Last7: sleep7.filter((s) => s.hours < 7).length,
+      adultBand: "7–9 hours",
+    },
+  };
+}
+
+async function buildSleepContext(userId: string) {
+  const base = await buildTodayContext(userId);
+  return {
+    goalTarget: base.goalTarget,
+    body: base.body,
+    macroTargets: {
+      calorieTarget: base.macroTargets.calorieTarget,
+      proteinMinG: base.macroTargets.proteinRange.minG,
+      deficit: base.macroTargets.deficit,
+      note: "High deficit + short sleep raises hunger and recovery risk — protect protein floor, don't cut harder.",
+    },
+    sleepSummary: base.sleepSummary,
+    recentSleep: base.recentSleep,
+    lastNight: base.today.lastNightSleep,
+    recentWorkoutDays: [
+      ...new Set(base.recentWorkouts.map((w) => w.date)),
+    ].slice(0, 7),
+    guidance:
+      "Adults: 7–9h. Consistency beats weekend catch-up. Deep sleep supports recovery hormones after lifting.",
   };
 }
 
@@ -409,7 +473,9 @@ export async function coachWithAI(
   const context =
     scope === "workout"
       ? await buildWorkoutContext(userId)
-      : await buildTodayContext(userId);
+      : scope === "sleep"
+        ? await buildSleepContext(userId)
+        : await buildTodayContext(userId);
 
   const system =
     scope === "workout"
@@ -420,11 +486,19 @@ If todayNutrition.intakePartial, do not judge calorie deficits from partial inta
 improve: at least 2 bullets with concrete plan adds/swaps or set/rep/weight tweaks (name the plan + exercise). Prefer catalogHints or lifts already in plans/history. Avoid vague "good mix" / cardio-only tips.
 ${JSON_SHAPE}
 2-4 short bullets each in keepDoing / improve / watchOut.`
+      : scope === "sleep"
+        ? `You are a pragmatic recovery coach for body recomposition.
+Adults generally need 7–9 hours. Short sleep raises hunger and impairs recovery — with a calorie deficit, protect the protein floor (~1.61 g/kg) and avoid pushing harder cuts.
+Consistency beats weekend catch-up. Tie advice to recentSleep, sleepSummary, deficit, and recentWorkoutDays.
+Be specific and concise; no medical claims or diagnoses.
+${JSON_SHAPE}
+2-4 short bullets each in keepDoing / improve / watchOut.`
       : `You are a pragmatic body-recomposition coach.
-Blend nutrition adherence, workout consistency, weight trend, and goalTarget.
+Blend nutrition adherence, workout consistency, weight trend, sleep (if present), and goalTarget.
 EEE is insight-only, not added to the calorie target.
 Protein uses an evidence range (macroTargets.proteinRange): floor ≈1.61 g/kg, strong zone ≈1.85–2.2 g/kg. Judge under-eating vs the floor, not the ceiling; food logs may look "low" vs maxG while still being in range.
 If today.dayNotFinished or intakePartial (or recentNutrition.intakePartial), do not call low calories a severe deficit — the day may be unfinished.
+If lastNightSleep.belowSeven or quality is low, mention recovery/appetite briefly.
 Be specific and concise; no medical claims.
 ${JSON_SHAPE}
 2-4 short bullets each in keepDoing / improve / watchOut.`;
@@ -434,7 +508,9 @@ ${JSON_SHAPE}
     instruction:
       scope === "workout"
         ? "Advise on named plans (pools) and recent lifts vs goal. Suggest specific adds/swaps and load tweaks."
-        : "Summarize today + recent trends; keep doing / improve.",
+        : scope === "sleep"
+          ? "Summarize sleep trends vs recomp recovery; give concrete keep doing / improve / watch outs."
+          : "Summarize today + recent trends; keep doing / improve.",
     ...(userRequest
       ? {
           userPriorityRequest: userRequest.slice(0, 400),

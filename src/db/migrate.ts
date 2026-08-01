@@ -213,6 +213,20 @@ const INCREMENTAL = [
   )`,
   `CREATE INDEX IF NOT EXISTS workout_plan_checks_session ON workout_plan_checks(sessionId)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS workout_plan_checks_unique ON workout_plan_checks(sessionId, planItemId)`,
+  `CREATE TABLE IF NOT EXISTS sleep_logs (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    fromTime TEXT,
+    untilTime TEXT,
+    hours REAL NOT NULL,
+    quality INTEGER NOT NULL DEFAULT 3,
+    note TEXT,
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS sleep_logs_user_date ON sleep_logs(userId, date)`,
+  `ALTER TABLE sleep_logs ADD COLUMN fromTime TEXT`,
+  `ALTER TABLE sleep_logs ADD COLUMN untilTime TEXT`,
 ];
 
 export async function ensureMigrated(client: Client) {

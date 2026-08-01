@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 
 export type CoachAdvicePayload = {
-  scope: "today" | "workout";
+  scope: "today" | "workout" | "sleep";
   summary: string;
   keepDoing: string[];
   improve: string[];
@@ -13,7 +13,7 @@ export type CoachAdvicePayload = {
 };
 
 type Props = {
-  scope: "today" | "workout";
+  scope: "today" | "workout" | "sleep";
   title?: string;
   placeholder?: string;
   buttonLabel?: string;
