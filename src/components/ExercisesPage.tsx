@@ -498,6 +498,7 @@ export function ExercisesPage() {
                     muscle: m.muscle,
                     label: m.label,
                     value: m.sets,
+                    baseline: Math.max(3, m.sets),
                     intensity: 0,
                   })));
             const maxLegacy = Math.max(
@@ -510,6 +511,7 @@ export function ExercisesPage() {
                 ? heatRows
                 : heatRows.map((m) => ({
                     ...m,
+                    baseline: m.baseline ?? maxLegacy,
                     intensity: m.value / maxLegacy,
                   }));
             const regions =

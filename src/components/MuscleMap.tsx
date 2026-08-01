@@ -11,6 +11,7 @@ type MuscleRow = {
   muscle: MuscleGroup;
   label: string;
   value: number;
+  baseline?: number;
   intensity: number;
 };
 
@@ -38,9 +39,16 @@ function formatValue(mode: HeatMode, value: number): string {
   if (mode === "sets") {
     return `${Math.round(value)}`;
   }
-  // Volume work in kg; ≥1000 shown as t (1000 kg of volume).
   if (value >= 1000) return `${(value / 1000).toFixed(1)}t`;
-  return `${Math.round(value)} kg`;
+  return `${Math.round(value)}`;
+}
+
+function formatPair(mode: HeatMode, value: number, baseline: number): string {
+  const a = formatValue(mode, value);
+  const b = formatValue(mode, baseline);
+  if (mode === "sets") return `${a} / ${b}`;
+  if (value >= 1000 || baseline >= 1000) return `${a} / ${b}`;
+  return `${a} / ${b} kg`;
 }
 
 export function MuscleMap({
@@ -76,30 +84,33 @@ export function MuscleMap({
 
       {rows.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-xs text-[var(--muted)]">
+          <p className="text-[10px] text-[var(--muted)] leading-snug">
             {mode === "sets"
-              ? "Sets today (bar = share of day’s max)"
-              : "Volume today · kg (bar = share of day’s max)"}
+              ? "Today’s sets / your recent best day for that muscle (min 3). Bar = share of today’s highest."
+              : "Today’s volume / recent best day (min 2.5t). Bar = share of today’s highest · t = 1000 kg moved."}
           </p>
           <ul className="space-y-1.5">
-            {rows.map((m) => (
-              <li key={m.muscle} className="flex items-center gap-3 text-sm">
-                <span className="w-28 shrink-0 text-[var(--muted)] truncate">
-                  {m.label}
-                </span>
-                <div className="flex-1 h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
-                  <div
-                    className="h-full bg-[var(--accent)] transition-all"
-                    style={{
-                      width: `${Math.min(100, (m.value / maxValue) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <span className="text-xs text-[var(--muted)] w-14 text-right tabular-nums">
-                  {formatValue(mode, m.value)}
-                </span>
-              </li>
-            ))}
+            {rows.map((m) => {
+              const baseline = m.baseline ?? m.value;
+              return (
+                <li key={m.muscle} className="flex items-center gap-3 text-sm">
+                  <span className="w-28 shrink-0 text-[var(--muted)] truncate">
+                    {m.label}
+                  </span>
+                  <div className="flex-1 h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                    <div
+                      className="h-full bg-[var(--accent)] transition-all"
+                      style={{
+                        width: `${Math.min(100, (m.value / maxValue) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs text-[var(--muted)] w-[4.5rem] text-right tabular-nums shrink-0">
+                    {formatPair(mode, m.value, baseline)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

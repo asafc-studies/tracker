@@ -86,6 +86,7 @@ function heatRowsFromPlan(items: PlanItem[]): {
       muscle: m.muscle,
       label: m.label || MUSCLE_LABELS[m.muscle as MuscleGroup],
       value: m.sets,
+      baseline: max,
       intensity: m.sets / max,
     })),
     regions: summarizeRegionCounts(ids),

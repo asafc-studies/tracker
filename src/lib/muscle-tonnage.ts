@@ -25,7 +25,12 @@ export type MuscleHeatRow = {
   label: string;
   /** Raw day total (sets or kg tonnage). */
   value: number;
-  /** 0–1 vs recent max for this muscle. */
+  /**
+   * Comparison max for this muscle: best single-day total in recent history,
+   * floored at SETS_FLOOR / TONNAGE_FLOOR so new muscles still have a bar.
+   */
+  baseline: number;
+  /** 0–1 = value / max(baseline, value). */
   intensity: number;
 };
 
@@ -297,11 +302,13 @@ function toRows(
   return Array.from(day.entries())
     .filter(([, v]) => v > 0)
     .map(([muscle, value]) => {
-      const cap = Math.max(maxes.get(muscle) ?? 0, floor, value);
+      const baseline = Math.max(maxes.get(muscle) ?? 0, floor);
+      const cap = Math.max(baseline, value);
       return {
         muscle,
         label: MUSCLE_LABELS[muscle],
         value: Math.round(value * 10) / 10,
+        baseline: Math.round(baseline * 10) / 10,
         intensity: Math.min(1, value / cap),
       };
     })

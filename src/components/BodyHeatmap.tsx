@@ -116,10 +116,10 @@ export function BodyHeatmap({
         <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
           Worked {dateLabel ?? "today"}
         </p>
-        <p className="text-[10px] text-[var(--muted)]">
+        <p className="text-[10px] text-[var(--muted)] text-right max-w-[11rem] leading-snug">
           {mode === "sets"
-            ? "Redder = more sets"
-            : "Redder = more load vs your recent max"}
+            ? "Redder = closer to your recent best day for that muscle"
+            : "Redder = closer to your recent best volume day"}
         </p>
       </div>
 
