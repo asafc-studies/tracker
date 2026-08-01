@@ -9,7 +9,10 @@ import {
   formatServingSize,
   type ServingUnit,
 } from "@/lib/serving-format";
-import { invalidateAfterMacros } from "@/lib/query-invalidate";
+import {
+  invalidateAfterMacros,
+  invalidateAfterMenu,
+} from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 
 type Ingredient = { name: string; amount: string };
@@ -116,12 +119,14 @@ function RecipeCard({
   date,
   onSaved,
   onDeleted,
+  onCollapse,
   showSave,
 }: {
   recipe: RecipeView;
   date: string;
   onSaved?: () => void;
   onDeleted?: () => void;
+  onCollapse?: () => void;
   showSave?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -130,6 +135,7 @@ function RecipeCard({
   const [stepChecked, setStepChecked] = useState<Set<number>>(new Set());
   const [quantity, setQuantity] = useState("1");
   const [logging, setLogging] = useState(false);
+  const [addingMenu, setAddingMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
@@ -212,6 +218,38 @@ function RecipeCard({
     }
   }
 
+  async function addToMenu() {
+    if (!scaled || !qtyOk) return;
+    setAddingMenu(true);
+    setError("");
+    try {
+      await apiFetch("/api/menu/daily", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "add",
+          date,
+          name: recipe.name.trim(),
+          quantity: qtyNum,
+          proteinG: scaled.proteinG,
+          carbsG: scaled.carbsG,
+          fatG: scaled.fatG,
+          calories: scaled.calories,
+          mealSlot: recipe.mealSlot ?? "snack",
+        }),
+      });
+      await invalidateAfterMenu(queryClient, date);
+      setHint(
+        qtyNum === 1
+          ? `Added to daily menu (${sizeLabel})`
+          : `Added ${qtyNum} × ${sizeLabel} to daily menu`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add to menu");
+    } finally {
+      setAddingMenu(false);
+    }
+  }
+
   async function saveRecipe() {
     setSaving(true);
     setError("");
@@ -262,14 +300,33 @@ function RecipeCard({
   return (
     <article className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-5">
       <header className="space-y-1">
-        <h3 className="font-medium text-lg leading-snug">{recipe.name}</h3>
-        <p className="text-xs text-[var(--muted)]">
-          Serving {sizeLabel}
-          {recipe.mealSlot ? ` · ${recipe.mealSlot}` : ""}
-          {hasRecipeBody && recipe.servings > 1
-            ? ` · makes ${recipe.servings}`
-            : ""}
-        </p>
+        {onCollapse ? (
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="w-full text-left space-y-1 -m-1 p-1 rounded-md hover:bg-[var(--background)] transition-colors"
+          >
+            <h3 className="font-medium text-lg leading-snug">{recipe.name}</h3>
+            <p className="text-xs text-[var(--muted)]">
+              Serving {sizeLabel}
+              {recipe.mealSlot ? ` · ${recipe.mealSlot}` : ""}
+              {hasRecipeBody && recipe.servings > 1
+                ? ` · makes ${recipe.servings}`
+                : ""}
+            </p>
+          </button>
+        ) : (
+          <>
+            <h3 className="font-medium text-lg leading-snug">{recipe.name}</h3>
+            <p className="text-xs text-[var(--muted)]">
+              Serving {sizeLabel}
+              {recipe.mealSlot ? ` · ${recipe.mealSlot}` : ""}
+              {hasRecipeBody && recipe.servings > 1
+                ? ` · makes ${recipe.servings}`
+                : ""}
+            </p>
+          </>
+        )}
       </header>
 
       <Checklist
@@ -326,6 +383,16 @@ function RecipeCard({
           >
             {logging ? "Logging…" : "Log"}
           </button>
+          {recipe.id ? (
+            <button
+              type="button"
+              disabled={addingMenu || !scaled}
+              onClick={() => void addToMenu()}
+              className="rounded-md border border-[var(--border)] px-4 py-2 text-sm min-h-[44px] disabled:opacity-50"
+            >
+              {addingMenu ? "Adding…" : "Add to menu"}
+            </button>
+          ) : null}
           {showSave ? (
             <button
               type="button"
@@ -670,23 +737,15 @@ export function NutritionIdeasAi({ date }: { date: string }) {
               return (
                 <li key={r.id} className="space-y-2">
                   {open ? (
-                    <>
-                      <RecipeCard
-                        recipe={{
-                          ...r,
-                          servingUnit: r.servingUnit === "ml" ? "ml" : "g",
-                        }}
-                        date={date}
-                        onDeleted={() => setOpenId(null)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setOpenId(null)}
-                        className="text-xs text-[var(--muted)] hover:underline min-h-[44px] px-1"
-                      >
-                        Collapse
-                      </button>
-                    </>
+                    <RecipeCard
+                      recipe={{
+                        ...r,
+                        servingUnit: r.servingUnit === "ml" ? "ml" : "g",
+                      }}
+                      date={date}
+                      onDeleted={() => setOpenId(null)}
+                      onCollapse={() => setOpenId(null)}
+                    />
                   ) : (
                     <button
                       type="button"
