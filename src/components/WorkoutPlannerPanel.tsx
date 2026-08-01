@@ -18,7 +18,10 @@ import {
 import { invalidateAfterLifts } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import type { MuscleHeatRow } from "@/lib/muscle-tonnage";
-import { userStorageKey } from "@/lib/user-storage";
+import {
+  readUserStorageItem,
+  writeUserStorageItem,
+} from "@/lib/user-storage";
 
 type PlanItem = {
   id: string;
@@ -122,24 +125,16 @@ export function WorkoutPlannerPanel() {
     queryKey: queryKeys.profile,
     queryFn: () => apiFetch<{ userId?: string }>("/api/profile"),
   });
-  const planStorageKey = userStorageKey(
-    ACTIVE_PLAN_KEY,
-    profileQuery.data?.userId,
-  );
+  const userId = profileQuery.data?.userId ?? null;
 
   const plans = plansQuery.data?.plans ?? [];
   const activeSessionId = plansQuery.data?.activeSessionId ?? null;
   const canCheck = Boolean(activeSessionId);
 
   useEffect(() => {
-    if (!planStorageKey) return;
-    try {
-      const stored = window.localStorage.getItem(planStorageKey);
-      if (stored) setActivePlanId(stored);
-    } catch {
-      /* ignore */
-    }
-  }, [planStorageKey]);
+    const stored = readUserStorageItem(ACTIVE_PLAN_KEY, userId);
+    if (stored) setActivePlanId(stored);
+  }, [userId]);
 
   useEffect(() => {
     if (plans.length === 0) {
@@ -155,12 +150,7 @@ export function WorkoutPlannerPanel() {
     setActivePlanId(id);
     setShowAdd(false);
     setEditingId(null);
-    if (!planStorageKey) return;
-    try {
-      window.localStorage.setItem(planStorageKey, id);
-    } catch {
-      /* ignore */
-    }
+    writeUserStorageItem(ACTIVE_PLAN_KEY, userId, id);
   }
 
   const activePlan = plans.find((p) => p.id === activePlanId) ?? null;

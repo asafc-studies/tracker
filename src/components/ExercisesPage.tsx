@@ -31,7 +31,10 @@ import type { HeatMode, MuscleHeatRow } from "@/lib/muscle-tonnage";
 import { invalidateAfterLifts } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
-import { userStorageKey } from "@/lib/user-storage";
+import {
+  readUserStorageItem,
+  writeUserStorageItem,
+} from "@/lib/user-storage";
 
 const HEAT_MODE_KEY = "recomp.muscleHeatMode";
 
@@ -148,18 +151,11 @@ export function ExercisesPage() {
     setPanel(normalizePanel(searchParams.get("panel")));
     const nextDate = searchParams.get("date");
     if (nextDate) setDate(clampDate(nextDate));
-    else setDate(todayISODate());
   }, [searchParams]);
 
   useEffect(() => {
-    const key = userStorageKey(HEAT_MODE_KEY, userId);
-    if (!key) return;
-    try {
-      const raw = window.localStorage.getItem(key);
-      if (raw === "sets" || raw === "tonnage") setHeatMode(raw);
-    } catch {
-      /* ignore */
-    }
+    const raw = readUserStorageItem(HEAT_MODE_KEY, userId);
+    if (raw === "sets" || raw === "tonnage") setHeatMode(raw);
   }, [userId]);
 
   function syncUrl(nextPanel: ExercisePanel, nextDate: string) {
@@ -177,13 +173,7 @@ export function ExercisesPage() {
 
   function changeHeatMode(mode: HeatMode) {
     setHeatMode(mode);
-    const key = userStorageKey(HEAT_MODE_KEY, userId);
-    if (!key) return;
-    try {
-      window.localStorage.setItem(key, mode);
-    } catch {
-      /* ignore */
-    }
+    writeUserStorageItem(HEAT_MODE_KEY, userId, mode);
   }
 
   const liftsQuery = useQuery({

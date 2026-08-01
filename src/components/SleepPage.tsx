@@ -313,6 +313,10 @@ export function SleepPage() {
                 </span>
               ) : null}
             </p>
+          ) : from && until ? (
+            <p className="text-xs text-[var(--muted)]">
+              From and until can’t be the same time.
+            </p>
           ) : (
             <p className="text-xs text-[var(--muted)]">
               Enter from and until to see duration.

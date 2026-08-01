@@ -57,17 +57,39 @@ export function SettingsNutrition() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setMessage("");
+    const calorieTargetOverride = useCalculator
+      ? null
+      : calorieTarget.trim() === ""
+        ? null
+        : Number(calorieTarget);
+    const proteinTargetOverride = useCalculator
+      ? null
+      : proteinTarget.trim() === ""
+        ? null
+        : Number(proteinTarget);
+    if (
+      calorieTargetOverride != null &&
+      (!Number.isFinite(calorieTargetOverride) || calorieTargetOverride <= 0)
+    ) {
+      setMessage("Calorie target must be a positive number.");
+      return;
+    }
+    if (
+      proteinTargetOverride != null &&
+      (!Number.isFinite(proteinTargetOverride) || proteinTargetOverride <= 0)
+    ) {
+      setMessage("Protein target must be a positive number.");
+      return;
+    }
+    setSaving(true);
     try {
       const data = await apiFetch<ProfilePayload>("/api/profile", {
         method: "PUT",
         body: JSON.stringify({
           nutritionOnly: true,
-          calorieTargetOverride: useCalculator
-            ? null
-            : Number(calorieTarget),
-          proteinTargetOverride: useCalculator ? null : Number(proteinTarget),
+          calorieTargetOverride,
+          proteinTargetOverride,
           countryCode: "il",
         }),
       });

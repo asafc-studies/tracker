@@ -45,7 +45,6 @@ function NutritionContent() {
     setPanel(normalizePanel(searchParams.get("panel")));
     const nextDate = searchParams.get("date");
     if (nextDate) setDate(clampDate(nextDate));
-    else setDate(todayISODate());
   }, [searchParams]);
 
   function syncUrl(nextPanel: NutritionPanel, nextDate: string) {

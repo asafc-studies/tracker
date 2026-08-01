@@ -91,13 +91,13 @@ export async function PUT(req: Request) {
 
     if (
       calorieTargetOverride != null &&
-      !Number.isFinite(calorieTargetOverride)
+      (!Number.isFinite(calorieTargetOverride) || calorieTargetOverride <= 0)
     ) {
       return jsonError("Invalid calorie target");
     }
     if (
       proteinTargetOverride != null &&
-      !Number.isFinite(proteinTargetOverride)
+      (!Number.isFinite(proteinTargetOverride) || proteinTargetOverride <= 0)
     ) {
       return jsonError("Invalid protein target");
     }

@@ -18,7 +18,11 @@ import {
 } from "@/lib/exercises";
 import { apiFetch } from "@/lib/api-fetch";
 import { queryKeys } from "@/lib/query-keys";
-import { userStorageKey } from "@/lib/user-storage";
+import {
+  readUserStorageItem,
+  removeUserStorageItem,
+  writeUserStorageItem,
+} from "@/lib/user-storage";
 
 const ALL_GROUPS = Object.keys(EXERCISE_GROUPS) as ExerciseGroup[];
 
@@ -92,11 +96,12 @@ function coerceMs(value: unknown): number | null {
 }
 
 function readStoredTimer(
-  key: string | null,
+  base: string,
+  userId: string | null | undefined,
 ): { sessionId: string; startedAt: number } | null {
-  if (typeof window === "undefined" || !key) return null;
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = readUserStorageItem(base, userId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { sessionId?: string; startedAt?: number };
     if (!parsed.sessionId || !parsed.startedAt) return null;
@@ -107,20 +112,23 @@ function readStoredTimer(
 }
 
 function writeStoredTimer(
-  key: string | null,
+  base: string,
+  userId: string | null | undefined,
   sessionId: string,
   startedAt: number,
 ) {
-  if (typeof window === "undefined" || !key) return;
-  window.localStorage.setItem(
-    key,
+  writeUserStorageItem(
+    base,
+    userId,
     JSON.stringify({ sessionId, startedAt }),
   );
 }
 
-function clearStoredTimer(key: string | null) {
-  if (typeof window === "undefined" || !key) return;
-  window.localStorage.removeItem(key);
+function clearStoredTimer(
+  base: string,
+  userId: string | null | undefined,
+) {
+  removeUserStorageItem(base, userId);
 }
 
 function formatElapsed(ms: number): string {
@@ -192,10 +200,7 @@ export function WorkoutLogPanel({
     queryKey: queryKeys.profile,
     queryFn: () => apiFetch<{ userId?: string }>("/api/profile"),
   });
-  const timerKey = userStorageKey(
-    TIMER_STORAGE_KEY,
-    profileQuery.data?.userId,
-  );
+  const userId = profileQuery.data?.userId ?? null;
   const running =
     inProgressSession ??
     sessions.find((s) => s.inProgress) ??
@@ -251,12 +256,12 @@ export function WorkoutLogPanel({
     if (!running) {
       timerSessionIdRef.current = null;
       setTimerStartedAt(null);
-      clearStoredTimer(timerKey);
+      clearStoredTimer(TIMER_STORAGE_KEY, userId);
       return;
     }
 
     const serverStart = coerceMs(running.startedAt);
-    const stored = readStoredTimer(timerKey);
+    const stored = readStoredTimer(TIMER_STORAGE_KEY, userId);
     let anchor =
       serverStart ??
       (stored?.sessionId === running.id ? stored.startedAt : null) ??
@@ -266,15 +271,15 @@ export function WorkoutLogPanel({
       timerSessionIdRef.current = running.id;
       if (anchor == null) anchor = Date.now();
       setTimerStartedAt(anchor);
-      writeStoredTimer(timerKey, running.id, anchor);
+      writeStoredTimer(TIMER_STORAGE_KEY, userId, running.id, anchor);
       return;
     }
 
     if (anchor != null) {
       setTimerStartedAt((prev) => prev ?? anchor);
-      writeStoredTimer(timerKey, running.id, anchor);
+      writeStoredTimer(TIMER_STORAGE_KEY, userId, running.id, anchor);
     }
-  }, [running, timerKey]);
+  }, [running, userId]);
 
   useEffect(() => {
     if (!running) return;
@@ -462,14 +467,14 @@ export function WorkoutLogPanel({
       if (sessionId) {
         timerSessionIdRef.current = sessionId;
         setTimerStartedAt(serverStart);
-        writeStoredTimer(timerKey, sessionId, serverStart);
+        writeStoredTimer(TIMER_STORAGE_KEY, userId, sessionId, serverStart);
         setSelectedId(sessionId);
       }
       await onChanged();
     } finally {
       setStarting(false);
     }
-  }, [date, onChanged]);
+  }, [date, onChanged, userId]);
 
   async function stopSession() {
     if (!running) return;
@@ -515,7 +520,7 @@ export function WorkoutLogPanel({
         setSessionMessage(data.error || "Could not stop session");
         return;
       }
-      clearStoredTimer(timerKey);
+      clearStoredTimer(TIMER_STORAGE_KEY, userId);
       setTimerStartedAt(null);
       timerSessionIdRef.current = null;
       const saved = data.session as DaySession | undefined;
@@ -615,7 +620,7 @@ export function WorkoutLogPanel({
         return;
       }
       if (running?.id === sessionId) {
-        clearStoredTimer(timerKey);
+        clearStoredTimer(TIMER_STORAGE_KEY, userId);
         setTimerStartedAt(null);
         timerSessionIdRef.current = null;
       }
@@ -701,7 +706,7 @@ export function WorkoutLogPanel({
     });
     if (selectedId === sessionId) setSelectedId(null);
     if (running?.id === sessionId) {
-      clearStoredTimer(timerKey);
+      clearStoredTimer(TIMER_STORAGE_KEY, userId);
       setTimerStartedAt(null);
       timerSessionIdRef.current = null;
     }
@@ -913,7 +918,7 @@ export function WorkoutLogPanel({
         return next;
       });
       if (running?.id === sessionId && minutes != null) {
-        clearStoredTimer(timerKey);
+        clearStoredTimer(TIMER_STORAGE_KEY, userId);
         setTimerStartedAt(null);
         timerSessionIdRef.current = null;
       }
