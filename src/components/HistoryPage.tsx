@@ -204,6 +204,8 @@ export function HistoryPage() {
   }
 
   async function deleteSleep(id: string) {
+    const ok = window.confirm("Delete this sleep entry?");
+    if (!ok) return;
     setSavingSleep(true);
     try {
       await apiFetch(`/api/sleep?id=${encodeURIComponent(id)}`, {

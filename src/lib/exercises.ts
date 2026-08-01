@@ -1398,9 +1398,10 @@ export function computeDayStats(
   let heaviestKg = 0;
   for (const s of sets) {
     exercises.add(s.lift);
-    totalReps += s.reps;
+    const cardio = isCardioExercise(s.lift);
+    if (!cardio) totalReps += s.reps;
     const load = effectiveLoadKg(s.lift, s.weightKg, bodyWeightKg);
-    volumeKg += load * s.reps;
+    volumeKg += load * (cardio ? 0 : s.reps);
     heaviestKg = Math.max(heaviestKg, load);
   }
   return {

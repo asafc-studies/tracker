@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
 import { AiCoachPanel } from "@/components/AiCoachPanel";
@@ -31,6 +31,7 @@ import type { HeatMode, MuscleHeatRow } from "@/lib/muscle-tonnage";
 import { invalidateAfterLifts } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
+import { userStorageKey } from "@/lib/user-storage";
 
 const HEAT_MODE_KEY = "recomp.muscleHeatMode";
 
@@ -113,13 +114,17 @@ function todayFriendly(date: string): string {
 
 export function ExercisesPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialDate = clampDate(searchParams.get("date") || todayISODate());
+  const today = todayISODate();
 
   const [panel, setPanel] = useState<ExercisePanel>(() =>
     normalizePanel(searchParams.get("panel")),
   );
-  const [date, setDate] = useState(initialDate);
+  const [date, setDate] = useState(() =>
+    clampDate(searchParams.get("date") || today),
+  );
   const [heatMode, setHeatMode] = useState<HeatMode>("tonnage");
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null);
   const [editingSessionHistoryId, setEditingSessionHistoryId] = useState<
@@ -132,25 +137,50 @@ export function ExercisesPage() {
   const [savingSessionHistory, setSavingSessionHistory] = useState(false);
 
   const field = fieldClass();
-  const today = todayISODate();
+
+  const profileQuery = useQuery({
+    queryKey: queryKeys.profile,
+    queryFn: () => apiFetch<{ userId?: string }>("/api/profile"),
+  });
+  const userId = profileQuery.data?.userId ?? null;
 
   useEffect(() => {
     setPanel(normalizePanel(searchParams.get("panel")));
+    const nextDate = searchParams.get("date");
+    if (nextDate) setDate(clampDate(nextDate));
+    else setDate(todayISODate());
   }, [searchParams]);
 
   useEffect(() => {
+    const key = userStorageKey(HEAT_MODE_KEY, userId);
+    if (!key) return;
     try {
-      const raw = window.localStorage.getItem(HEAT_MODE_KEY);
+      const raw = window.localStorage.getItem(key);
       if (raw === "sets" || raw === "tonnage") setHeatMode(raw);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [userId]);
+
+  function syncUrl(nextPanel: ExercisePanel, nextDate: string) {
+    const params = new URLSearchParams();
+    params.set("panel", nextPanel);
+    if (nextDate !== todayISODate()) params.set("date", nextDate);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  function changePanel(next: ExercisePanel) {
+    setPanel(next);
+    syncUrl(next, date);
+  }
 
   function changeHeatMode(mode: HeatMode) {
     setHeatMode(mode);
+    const key = userStorageKey(HEAT_MODE_KEY, userId);
+    if (!key) return;
     try {
-      window.localStorage.setItem(HEAT_MODE_KEY, mode);
+      window.localStorage.setItem(key, mode);
     } catch {
       /* ignore */
     }
@@ -184,14 +214,18 @@ export function ExercisesPage() {
   }
 
   function setDateSafe(next: string) {
-    setDate(clampDate(next));
+    const clamped = clampDate(next);
+    setDate(clamped);
     setFocusSessionId(null);
+    syncUrl(panel, clamped);
   }
 
   function openDayForEdit(dayDate: string, sessionId?: string) {
-    setDateSafe(dayDate);
+    const clamped = clampDate(dayDate);
+    setDate(clamped);
     setFocusSessionId(sessionId ?? null);
     setPanel("log");
+    syncUrl("log", clamped);
   }
 
   async function saveSessionFromHistory(sessionId: string) {
@@ -298,7 +332,7 @@ export function ExercisesPage() {
       <div className="grid sm:grid-cols-2 gap-3 pt-2">
         <button
           type="button"
-          onClick={() => setPanel("muscles")}
+          onClick={() => changePanel("muscles")}
           className="text-left rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 hover:border-[var(--accent)]/40 transition-colors"
         >
           <p className="text-xs text-[var(--muted)]">Heatmap</p>
@@ -306,7 +340,7 @@ export function ExercisesPage() {
         </button>
         <button
           type="button"
-          onClick={() => setPanel("log")}
+          onClick={() => changePanel("log")}
           className="text-left rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 hover:border-[var(--accent)]/40 transition-colors"
         >
           <p className="text-xs text-[var(--muted)]">Today&apos;s sets</p>
@@ -439,7 +473,7 @@ export function ExercisesPage() {
   return (
     <AppShell title="Exercises">
       {dateBar}
-      <ExercisePanelNav active={panel} onChange={setPanel} />
+      <ExercisePanelNav active={panel} onChange={changePanel} />
 
       {panel === "overview" ? overviewPanel : null}
       {panel === "muscles" ? (

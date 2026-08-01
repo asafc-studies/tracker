@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/AppShell";
 import { MacrosGuesserPanel } from "@/components/MacrosGuesserPanel";
 import { MacrosLogPanel } from "@/components/MacrosLogPanel";
@@ -28,23 +28,44 @@ function normalizePanel(p: string | null): NutritionPanel {
 }
 
 function NutritionContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialDate = clampDate(
-    searchParams.get("date") || todayISODate(),
-  );
+  const today = todayISODate();
 
   const [panel, setPanel] = useState<NutritionPanel>(() =>
     normalizePanel(searchParams.get("panel")),
   );
-  const [date, setDate] = useState(initialDate);
-  const today = todayISODate();
+  const [date, setDate] = useState(() =>
+    clampDate(searchParams.get("date") || today),
+  );
   const field = nutritionFieldClass();
 
   useEffect(() => {
     setPanel(normalizePanel(searchParams.get("panel")));
     const nextDate = searchParams.get("date");
     if (nextDate) setDate(clampDate(nextDate));
+    else setDate(todayISODate());
   }, [searchParams]);
+
+  function syncUrl(nextPanel: NutritionPanel, nextDate: string) {
+    const params = new URLSearchParams();
+    params.set("panel", nextPanel);
+    if (nextDate !== todayISODate()) params.set("date", nextDate);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  function changePanel(next: NutritionPanel) {
+    setPanel(next);
+    syncUrl(next, date);
+  }
+
+  function changeDate(next: string) {
+    const clamped = clampDate(next);
+    setDate(clamped);
+    syncUrl(panel, clamped);
+  }
 
   return (
     <>
@@ -56,13 +77,13 @@ function NutritionContent() {
             className={`${field} max-w-[11rem]`}
             value={date}
             max={today}
-            onChange={(e) => setDate(clampDate(e.target.value))}
+            onChange={(e) => changeDate(e.target.value)}
           />
         </label>
         {date !== today ? (
           <button
             type="button"
-            onClick={() => setDate(today)}
+            onClick={() => changeDate(today)}
             className="text-xs text-[var(--accent)] hover:underline min-h-[44px]"
           >
             Today
@@ -70,7 +91,7 @@ function NutritionContent() {
         ) : null}
       </div>
 
-      <NutritionPanelNav active={panel} onChange={setPanel} />
+      <NutritionPanelNav active={panel} onChange={changePanel} />
 
       {panel === "log" ? <MacrosLogPanel date={date} /> : null}
       {panel === "menu" ? <MenuDailyPanel date={date} /> : null}

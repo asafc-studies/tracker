@@ -294,6 +294,24 @@ export async function DELETE(req: Request) {
   if (!id) return jsonError("id required");
 
   const db = await getDb();
+  /** Unlink menu checks before food-log delete (FK would only null foodLogId). */
+  await db
+    .delete(schema.dailyMenuChecks)
+    .where(
+      and(
+        eq(schema.dailyMenuChecks.foodLogId, id),
+        eq(schema.dailyMenuChecks.userId, authz.userId),
+      ),
+    );
+  await db
+    .update(schema.dailyMenuItems)
+    .set({ checked: false, foodLogId: null })
+    .where(
+      and(
+        eq(schema.dailyMenuItems.foodLogId, id),
+        eq(schema.dailyMenuItems.userId, authz.userId),
+      ),
+    );
   await db
     .delete(schema.foodLogs)
     .where(

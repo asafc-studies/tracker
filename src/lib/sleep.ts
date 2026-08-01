@@ -35,14 +35,16 @@ export function formatClockTime(raw: string | null | undefined): string {
 }
 
 /**
- * Hours between from→until. If until ≤ from, treat as overnight (crosses midnight).
+ * Hours between from→until. Overnight when until < from.
+ * Same clock times are invalid (not a 24h sleep).
  */
 export function hoursFromUntil(from: string, until: string): number | null {
   const a = parseClockTime(from);
   const b = parseClockTime(until);
   if (a == null || b == null) return null;
+  if (a === b) return null;
   let diff = b - a;
-  if (diff <= 0) diff += 24 * 60;
+  if (diff < 0) diff += 24 * 60;
   if (diff > 24 * 60) return null;
   return Math.round((diff / 60) * 10) / 10;
 }

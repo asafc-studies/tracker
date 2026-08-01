@@ -487,16 +487,6 @@ export async function POST(req: Request) {
       ],
     });
 
-    /** Cardio sets store planned distance at add-time; lock minutes from the timer now. */
-    for (const set of session.sets ?? []) {
-      if (getExercise(set.lift)?.type === "cardio") {
-        await db
-          .update(schema.liftSets)
-          .set({ reps: elapsedMin })
-          .where(eq(schema.liftSets.id, set.id));
-      }
-    }
-
     await db
       .delete(schema.workoutPlanChecks)
       .where(eq(schema.workoutPlanChecks.sessionId, sessionId));
@@ -709,20 +699,6 @@ export async function PATCH(req: Request) {
       /** Manual duration edit stops a still-running session. */
       if (toMs(session.endedAt) == null) {
         updates.endedAt = new Date();
-      }
-      if (
-        durationMinutes != null &&
-        Number.isFinite(durationMinutes) &&
-        durationMinutes > 0
-      ) {
-        for (const set of session.sets ?? []) {
-          if (getExercise(set.lift)?.type === "cardio") {
-            await db
-              .update(schema.liftSets)
-              .set({ reps: Math.round(durationMinutes) })
-              .where(eq(schema.liftSets.id, set.id));
-          }
-        }
       }
     }
 

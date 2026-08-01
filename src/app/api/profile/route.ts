@@ -48,6 +48,7 @@ export async function GET() {
 
   if (!profile || !profile.weightKg || profile.bodyFatPercent == null) {
     return jsonOk({
+      userId: authz.userId,
       profile: profile ?? null,
       targets: null,
       needsBodyFat: !profile?.bodyFatPercent,
@@ -55,6 +56,7 @@ export async function GET() {
   }
 
   return jsonOk({
+    userId: authz.userId,
     profile,
     targets: profileTargets(profile),
     needsBodyFat: false,
