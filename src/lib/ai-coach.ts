@@ -14,11 +14,31 @@ import { listWorkoutPlans } from "@/lib/workout-plans";
 
 export type CoachScope = "today" | "workout" | "sleep";
 
+export type CoachSessionItem = {
+  /** Present when the item was taken from an existing saved plan row. */
+  planItemId: string | null;
+  planId: string | null;
+  lift: string;
+  name: string;
+  setsCount: number;
+  reps: number;
+  weightKg: number;
+  cardio: boolean;
+  bodyweight: boolean;
+};
+
+export type CoachSessionPlan = {
+  title: string;
+  reason: string;
+  items: CoachSessionItem[];
+};
+
 export type CoachAdvice = {
   summary: string;
   keepDoing: string[];
   improve: string[];
   watchOut: string[];
+  session: CoachSessionPlan | null;
   model: string;
 };
 
@@ -117,7 +137,7 @@ function formatPlanItem(item: {
 function catalogHintsForPlans(
   planLiftIds: string[],
   max = 18,
-): string[] {
+): Array<{ id: string; name: string; group: string }> {
   const used = new Set(planLiftIds);
   const covered = new Set<string>();
   for (const id of planLiftIds) {
@@ -139,7 +159,7 @@ function catalogHintsForPlans(
     "biceps",
   ];
 
-  const hints: string[] = [];
+  const hints: Array<{ id: string; name: string; group: string }> = [];
   for (const muscle of priorityMuscles) {
     if (hints.length >= max) break;
     if (covered.has(muscle)) continue;
@@ -152,7 +172,7 @@ function catalogHintsForPlans(
     ).slice(0, 2);
     for (const e of candidates) {
       if (hints.length >= max) break;
-      hints.push(`${e.name} (${e.group}, ${muscle})`);
+      hints.push({ id: e.id, name: e.name, group: e.group });
       used.add(e.id);
     }
   }
@@ -164,7 +184,7 @@ function catalogHintsForPlans(
         continue;
       }
       if (e.type === "cardio") continue;
-      hints.push(`${e.name} (${e.group})`);
+      hints.push({ id: e.id, name: e.name, group: e.group });
       used.add(e.id);
     }
   }
@@ -408,41 +428,210 @@ async function buildWorkoutContext(userId: string) {
   const { plans } = await listWorkoutPlans(userId);
 
   const planLiftIds = plans.flatMap((p) => p.items.map((i) => i.lift));
-  const workoutPlans = plans.slice(0, 8).map((p) => ({
+  const itemsById = new Map<
+    string,
+    {
+      planItemId: string;
+      planId: string;
+      planName: string;
+      lift: string;
+      name: string;
+      setsCount: number;
+      reps: number;
+      weightKg: number;
+      cardio: boolean;
+      bodyweight: boolean;
+    }
+  >();
+
+  const workoutPlans = plans.map((p) => ({
+    id: p.id,
     name: p.name,
-    pool: p.items.slice(0, 16).map(formatPlanItem),
+    items: p.items.map((i) => {
+      itemsById.set(i.id, {
+        planItemId: i.id,
+        planId: p.id,
+        planName: p.name,
+        lift: i.lift,
+        name: i.name,
+        setsCount: i.setsCount,
+        reps: i.reps,
+        weightKg: i.weightKg,
+        cardio: i.cardio,
+        bodyweight: i.bodyweight,
+      });
+      return {
+        id: i.id,
+        lift: i.lift,
+        line: formatPlanItem(i),
+      };
+    }),
   }));
 
   return {
-    goalTarget: base.goalTarget,
-    body: base.body,
-    macroTargets: {
-      calorieTarget: base.macroTargets.calorieTarget,
-      proteinG: base.macroTargets.proteinG,
-      deficit: base.macroTargets.deficit,
+    context: {
+      goalTarget: base.goalTarget,
+      today: {
+        date: base.today.date,
+        alreadyLogged: base.today.sessions,
+        lastNightSleepHours: base.today.lastNightSleep?.hours ?? null,
+      },
+      todayNutrition: {
+        kcal: base.today.intake.calories,
+        proteinG: base.today.intake.proteinG,
+        calorieTarget: base.macroTargets.calorieTarget,
+        proteinFloorG: base.macroTargets.proteinRange.minG,
+        intakePartial: base.today.intakePartial,
+        note: base.today.nutritionNote,
+      },
+      recentWorkouts: base.recentWorkouts.slice(0, 6),
+      workoutPlans,
+      workoutPlansNote:
+        "Full saved plans. Prefer naming lifts by workoutPlans.items.lift or catalogHints.id when building a new plan.",
+      catalogHints: catalogHintsForPlans(planLiftIds, 12),
+      catalogHintsNote:
+        "Optional add-ons for a new plan or improve bullets — use lift id field.",
     },
-    todayNutrition: {
-      dayNotFinished: base.today.dayNotFinished,
-      intakePartial: base.today.intakePartial,
-      note: base.today.nutritionNote,
-      kcal: base.today.intake.calories,
-      proteinG: base.today.intake.proteinG,
-    },
-    recentWorkouts: base.recentWorkouts.slice(0, 6),
-    recentWeights: base.recentWeights.slice(0, 4),
-    workoutPlans,
-    workoutPlansNote:
-      "Each plan is a candidate pool — usually only a subset is used per session. Never treat a plan as one mandatory full workout.",
-    catalogHints: catalogHintsForPlans(planLiftIds, 16),
+    itemsById,
   };
 }
 
-function parseAdvice(content: string, model: string): CoachAdvice {
+type PlanItemRef = {
+  planItemId: string;
+  planId: string;
+  planName: string;
+  lift: string;
+  name: string;
+  setsCount: number;
+  reps: number;
+  weightKg: number;
+  cardio: boolean;
+  bodyweight: boolean;
+};
+
+function pushLiftItem(
+  items: CoachSessionItem[],
+  seen: Set<string>,
+  input: {
+    lift: string;
+    setsCount?: number;
+    reps?: number;
+    weightKg?: number;
+    planItemId?: string | null;
+    planId?: string | null;
+  },
+) {
+  const ex = getExercise(input.lift);
+  if (!ex || items.length >= 16) return;
+  const key = input.planItemId || `${ex.id}:${input.setsCount ?? ""}:${items.length}`;
+  if (seen.has(key) && input.planItemId) return;
+  seen.add(key);
+  const cardio = ex.type === "cardio";
+  const bodyweight = Boolean(ex.bodyweight);
+  items.push({
+    planItemId: input.planItemId ?? null,
+    planId: input.planId ?? null,
+    lift: ex.id,
+    name: ex.name,
+    setsCount: cardio
+      ? 1
+      : Math.max(1, Math.min(20, Number(input.setsCount) || 3)),
+    reps: cardio ? 1 : Math.max(1, Number(input.reps) || 8),
+    weightKg: cardio
+      ? 0
+      : Math.max(0, Number(input.weightKg) || (bodyweight ? 0 : 20)),
+    cardio,
+    bodyweight,
+  });
+}
+
+function resolveSession(
+  raw: unknown,
+  itemsById: Map<string, PlanItemRef>,
+): CoachSessionPlan | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const rawItems = Array.isArray(o.items) ? o.items : [];
+  const items: CoachSessionItem[] = [];
+  const seen = new Set<string>();
+
+  for (const x of rawItems) {
+    if (typeof x === "string") {
+      const id = x.trim();
+      const fromPlan = itemsById.get(id);
+      if (fromPlan) {
+        pushLiftItem(items, seen, {
+          lift: fromPlan.lift,
+          setsCount: fromPlan.setsCount,
+          reps: fromPlan.reps,
+          weightKg: fromPlan.weightKg,
+          planItemId: fromPlan.planItemId,
+          planId: fromPlan.planId,
+        });
+      } else {
+        pushLiftItem(items, seen, { lift: id });
+      }
+      continue;
+    }
+    if (!x || typeof x !== "object") continue;
+    const rec = x as Record<string, unknown>;
+    const planItemId = String(rec.planItemId ?? "").trim();
+    if (planItemId && itemsById.has(planItemId)) {
+      const row = itemsById.get(planItemId)!;
+      pushLiftItem(items, seen, {
+        lift: row.lift,
+        setsCount: Number(rec.setsCount ?? row.setsCount),
+        reps: Number(rec.reps ?? row.reps),
+        weightKg: Number(rec.weightKg ?? row.weightKg),
+        planItemId: row.planItemId,
+        planId: row.planId,
+      });
+      continue;
+    }
+    const lift = String(rec.lift ?? rec.id ?? "").trim();
+    if (!lift) continue;
+    const fromPlanItem = itemsById.get(lift);
+    if (fromPlanItem && !rec.lift) {
+      pushLiftItem(items, seen, {
+        lift: fromPlanItem.lift,
+        setsCount: fromPlanItem.setsCount,
+        reps: fromPlanItem.reps,
+        weightKg: fromPlanItem.weightKg,
+        planItemId: fromPlanItem.planItemId,
+        planId: fromPlanItem.planId,
+      });
+      continue;
+    }
+    pushLiftItem(items, seen, {
+      lift,
+      setsCount: Number(rec.setsCount),
+      reps: Number(rec.reps),
+      weightKg: Number(rec.weightKg),
+    });
+  }
+  if (items.length === 0) return null;
+
+  const title = String(o.title || "").trim() || "Plan";
+  const reason = String(o.reason || "").trim();
+  return {
+    title: title.slice(0, 80),
+    reason: reason.slice(0, 280),
+    items,
+  };
+}
+
+function parseAdvice(
+  content: string,
+  model: string,
+  itemsById?: Map<string, PlanItemRef>,
+): CoachAdvice {
   let parsed: {
     summary?: string;
     keepDoing?: unknown;
     improve?: unknown;
     watchOut?: unknown;
+    session?: unknown;
+    plan?: unknown;
   };
   try {
     parsed = JSON.parse(extractJsonObject(content)) as typeof parsed;
@@ -455,9 +644,12 @@ function parseAdvice(content: string, model: string): CoachAdvice {
 
   return {
     summary,
-    keepDoing: asStringList(parsed.keepDoing),
-    improve: asStringList(parsed.improve),
-    watchOut: asStringList(parsed.watchOut),
+    keepDoing: asStringList(parsed.keepDoing, 4),
+    improve: asStringList(parsed.improve, 4),
+    watchOut: asStringList(parsed.watchOut, 4),
+    session: itemsById
+      ? resolveSession(parsed.plan ?? parsed.session, itemsById)
+      : null,
     model,
   };
 }
@@ -465,27 +657,46 @@ function parseAdvice(content: string, model: string): CoachAdvice {
 const JSON_SHAPE = `Return ONLY valid JSON (no markdown):
 {"summary":"3-5 sentences on trends vs the user's goal","keepDoing":["..."],"improve":["..."],"watchOut":["..."]}`;
 
+const WORKOUT_JSON_SHAPE = `Return ONLY valid JSON (no markdown):
+{"summary":"direct answer first","keepDoing":["..."],"improve":["..."],"watchOut":["..."],"plan":null}`;
+
 export async function coachWithAI(
   userId: string,
   scope: CoachScope,
   userRequest?: string,
 ): Promise<CoachAdvice> {
-  const context =
-    scope === "workout"
-      ? await buildWorkoutContext(userId)
-      : scope === "sleep"
-        ? await buildSleepContext(userId)
-        : await buildTodayContext(userId);
+  let itemsById: Map<string, PlanItemRef> | undefined;
+
+  let context: unknown;
+  if (scope === "workout") {
+    const built = await buildWorkoutContext(userId);
+    context = built.context;
+    itemsById = built.itemsById;
+  } else if (scope === "sleep") {
+    context = await buildSleepContext(userId);
+  } else {
+    context = await buildTodayContext(userId);
+  }
 
   const system =
     scope === "workout"
       ? `You are a pragmatic strength & conditioning coach for body recomposition.
-Use goalTarget, body, recentWorkouts, workoutPlans, and catalogHints.
-workoutPlans are candidate pools — usually only a subset is done per session; never treat a full plan as one mandatory workout.
-If todayNutrition.intakePartial, do not judge calorie deficits from partial intake.
-improve: at least 2 bullets with concrete plan adds/swaps or set/rep/weight tweaks (name the plan + exercise). Prefer catalogHints or lifts already in plans/history. Avoid vague "good mix" / cardio-only tips.
-${JSON_SHAPE}
-2-4 short bullets each in keepDoing / improve / watchOut.`
+Answer the user's ask first. Be concise. Default plan=null.
+
+When to set plan (structured exercise list) — include it automatically when the answer is a concrete exercise lineup people can save/use:
+- They ask for a new / rewritten / alternate plan.
+- Their question implies specific plan changes (add/remove/swap/rebalance a day, fix weak points with a revised list, build a better push/pull/leg day, etc.) — return the full resulting plan, not only bullets.
+- plan={"title":"short label","reason":"1 sentence","items":[{"lift":"exercise_id","setsCount":3,"reps":8,"weightKg":60},...]}
+- Use lift ids from workoutPlans.items.lift or catalogHints.id (never invent ids). 4–12 items.
+
+When NOT to set plan (keep plan=null):
+- Straight yes/no or advice questions with no exercise list needed (pre-workout food, recovery, sleep, "which existing plan should I run today", general encouragement).
+- High-level tips where naming a few adds/removes in improve bullets is enough and a full rewritten list isn't implied.
+- Nutrition/pre-workout → use todayNutrition; answer yes/what or no/you're fine.
+
+keepDoing / improve / watchOut: 0–4 short bullets; empty arrays fine when summary is enough.
+${WORKOUT_JSON_SHAPE}
+If returning a plan, replace plan:null with the object above.`
       : scope === "sleep"
         ? `You are a pragmatic recovery coach for body recomposition.
 Adults generally need 7–9 hours. Short sleep raises hunger and impairs recovery — with a calorie deficit, protect the protein floor (~1.61 g/kg) and avoid pushing harder cuts.
@@ -493,7 +704,7 @@ Consistency beats weekend catch-up. Tie advice to recentSleep, sleepSummary, def
 Be specific and concise; no medical claims or diagnoses.
 ${JSON_SHAPE}
 2-4 short bullets each in keepDoing / improve / watchOut.`
-      : `You are a pragmatic body-recomposition coach.
+        : `You are a pragmatic body-recomposition coach.
 Blend nutrition adherence, workout consistency, weight trend, sleep (if present), and goalTarget.
 EEE is insight-only, not added to the calorie target.
 Protein uses an evidence range (macroTargets.proteinRange): floor ≈1.61 g/kg, strong zone ≈1.85–2.2 g/kg. Judge under-eating vs the floor, not the ceiling; food logs may look "low" vs maxG while still being in range.
@@ -507,14 +718,14 @@ ${JSON_SHAPE}
     scope,
     instruction:
       scope === "workout"
-        ? "Advise on named plans (pools) and recent lifts vs goal. Suggest specific adds/swaps and load tweaks."
+        ? "Answer userPriorityRequest directly. plan=null by default. If the ask implies a concrete revised/new exercise list, fill plan automatically; otherwise text/bullets only."
         : scope === "sleep"
           ? "Summarize sleep trends vs recomp recovery; give concrete keep doing / improve / watch outs."
           : "Summarize today + recent trends; keep doing / improve.",
     ...(userRequest
       ? {
           userPriorityRequest: userRequest.slice(0, 400),
-          note: "userPriorityRequest overrides other emphasis.",
+          note: "userPriorityRequest is the main ask — answer it first.",
         }
       : {}),
     context,
@@ -525,5 +736,5 @@ ${JSON_SHAPE}
     user: JSON.stringify(userPayload),
     temperature: 0.5,
   });
-  return parseAdvice(content, model);
+  return parseAdvice(content, model, itemsById);
 }

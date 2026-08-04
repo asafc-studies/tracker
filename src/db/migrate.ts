@@ -257,10 +257,12 @@ const INCREMENTAL = [
     keepDoingJson TEXT NOT NULL DEFAULT '[]',
     improveJson TEXT NOT NULL DEFAULT '[]',
     watchOutJson TEXT NOT NULL DEFAULT '[]',
+    sessionJson TEXT NOT NULL DEFAULT 'null',
     model TEXT NOT NULL DEFAULT '',
     createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   )`,
   `CREATE INDEX IF NOT EXISTS workout_tips_user_date ON workout_tips(userId, date)`,
+  `ALTER TABLE workout_tips ADD COLUMN sessionJson TEXT NOT NULL DEFAULT 'null'`,
 ];
 
 export async function ensureMigrated(client: Client) {

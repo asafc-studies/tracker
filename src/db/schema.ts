@@ -263,6 +263,8 @@ export const workoutTips = sqliteTable("workout_tips", {
   keepDoingJson: text("keepDoingJson").notNull().default("[]"),
   improveJson: text("improveJson").notNull().default("[]"),
   watchOutJson: text("watchOutJson").notNull().default("[]"),
+  /** JSON: { title, reason, items: [{ planItemId, lift, name, ... }] } | null */
+  sessionJson: text("sessionJson").notNull().default("null"),
   model: text("model").notNull().default(""),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .notNull()

@@ -1,6 +1,9 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { coachWithAI } from "@/lib/ai-coach";
+import {
+  coachWithAI,
+  type CoachSessionPlan,
+} from "@/lib/ai-coach";
 import { jsonError, jsonOk, requireUser } from "@/lib/api";
 import { todayISODate } from "@/lib/tdee";
 
@@ -13,6 +16,7 @@ export type WorkoutTipView = {
   keepDoing: string[];
   improve: string[];
   watchOut: string[];
+  session: CoachSessionPlan | null;
   model: string;
   createdAt: Date | number;
 };
@@ -27,6 +31,18 @@ function parseList(raw: string): string[] {
   }
 }
 
+function parseSession(raw: string | null | undefined): CoachSessionPlan | null {
+  if (!raw || raw === "null") return null;
+  try {
+    const parsed = JSON.parse(raw) as CoachSessionPlan | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function mapTip(row: typeof schema.workoutTips.$inferSelect): WorkoutTipView {
   return {
     id: row.id,
@@ -37,12 +53,19 @@ function mapTip(row: typeof schema.workoutTips.$inferSelect): WorkoutTipView {
     keepDoing: parseList(row.keepDoingJson),
     improve: parseList(row.improveJson),
     watchOut: parseList(row.watchOutJson),
+    session: parseSession(row.sessionJson),
     model: row.model,
     createdAt: row.createdAt,
   };
 }
 
-function tipLabel(prompt: string, summary: string): string {
+function tipLabel(
+  prompt: string,
+  summary: string,
+  sessionTitle?: string | null,
+): string {
+  const title = sessionTitle?.trim();
+  if (title) return title.length > 80 ? `${title.slice(0, 77)}…` : title;
   const p = prompt.trim();
   if (p) return p.length > 80 ? `${p.slice(0, 77)}…` : p;
   const s = summary.trim().replace(/\s+/g, " ");
@@ -113,11 +136,12 @@ export async function POST(req: Request) {
         userId: authz.userId,
         date,
         prompt,
-        label: tipLabel(prompt, advice.summary),
+        label: tipLabel(prompt, advice.summary, advice.session?.title),
         summary: advice.summary,
         keepDoingJson: JSON.stringify(advice.keepDoing),
         improveJson: JSON.stringify(advice.improve),
         watchOutJson: JSON.stringify(advice.watchOut),
+        sessionJson: JSON.stringify(advice.session),
         model: advice.model,
       })
       .returning();
