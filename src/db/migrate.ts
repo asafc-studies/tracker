@@ -247,6 +247,20 @@ const INCREMENTAL = [
   `ALTER TABLE recipes ADD COLUMN servingLabel TEXT DEFAULT '1 serving'`,
   `ALTER TABLE recipes ADD COLUMN servingAmount REAL NOT NULL DEFAULT 100`,
   `ALTER TABLE recipes ADD COLUMN servingUnit TEXT NOT NULL DEFAULT 'g'`,
+  `CREATE TABLE IF NOT EXISTS workout_tips (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    prompt TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    keepDoingJson TEXT NOT NULL DEFAULT '[]',
+    improveJson TEXT NOT NULL DEFAULT '[]',
+    watchOutJson TEXT NOT NULL DEFAULT '[]',
+    model TEXT NOT NULL DEFAULT '',
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS workout_tips_user_date ON workout_tips(userId, date)`,
 ];
 
 export async function ensureMigrated(client: Client) {

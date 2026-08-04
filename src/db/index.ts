@@ -53,7 +53,8 @@ export function getDbSync() {
     !("standingMenuItems" in (globalForDb.__recompDb.query ?? {})) ||
     !("workoutPlans" in (globalForDb.__recompDb.query ?? {})) ||
     !("sleepLogs" in (globalForDb.__recompDb.query ?? {})) ||
-    !("recipes" in (globalForDb.__recompDb.query ?? {}))
+    !("recipes" in (globalForDb.__recompDb.query ?? {})) ||
+    !("workoutTips" in (globalForDb.__recompDb.query ?? {}))
   ) {
     globalForDb.__recompDb = drizzle(client, { schema });
   }

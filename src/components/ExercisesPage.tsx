@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
-import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { BodyHeatmap } from "@/components/BodyHeatmap";
 import { MuscleMap } from "@/components/MuscleMap";
 import { SleepUndersleepTip } from "@/components/SleepUndersleepTip";
@@ -21,6 +20,7 @@ import {
   type DaySession,
 } from "@/components/WorkoutLogPanel";
 import { WorkoutPlannerPanel } from "@/components/WorkoutPlannerPanel";
+import { WorkoutTipsPanel } from "@/components/WorkoutTipsPanel";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   type BodyRegion,
@@ -575,12 +575,7 @@ export function ExercisesPage() {
       {panel === "tips" ? (
         <div className="space-y-4">
           <SleepUndersleepTip kind="training" />
-          <AiCoachPanel
-            scope="workout"
-            title="Workout tips"
-            buttonLabel="Get workout tips"
-            placeholder='Optional: e.g. "more pull volume" or "knee-friendly cardio"'
-          />
+          <WorkoutTipsPanel date={date} />
         </div>
       ) : null}
       {panel === "history" ? historyPanel : null}

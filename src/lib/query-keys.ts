@@ -8,5 +8,6 @@ export const queryKeys = {
   menuDaily: (date: string) => ["menu", "daily", date] as const,
   menuTemplates: ["menu", "templates"] as const,
   recipes: ["nutrition", "recipes"] as const,
+  workoutTips: (range: string) => ["workout-tips", range] as const,
   workoutPlans: ["workout-plans"] as const,
 } as const;

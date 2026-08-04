@@ -245,6 +245,30 @@ export const recipes = sqliteTable("recipes", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+/** Saved AI workout tips (question + answer) for the Tips panel history. */
+export const workoutTips = sqliteTable("workout_tips", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Calendar day the tip was asked (YYYY-MM-DD). */
+  date: text("date").notNull(),
+  /** User prompt; empty when they asked with no focus note. */
+  prompt: text("prompt").notNull().default(""),
+  /** Short list label (prompt or truncated summary). */
+  label: text("label").notNull(),
+  summary: text("summary").notNull(),
+  keepDoingJson: text("keepDoingJson").notNull().default("[]"),
+  improveJson: text("improveJson").notNull().default("[]"),
+  watchOutJson: text("watchOutJson").notNull().default("[]"),
+  model: text("model").notNull().default(""),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const dailyMenuItems = sqliteTable("daily_menu_items", {
   id: text("id")
     .primaryKey()
@@ -434,6 +458,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   savedFoods: many(savedFoods),
   menuTemplates: many(menuTemplates),
   recipes: many(recipes),
+  workoutTips: many(workoutTips),
   dailyMenuItems: many(dailyMenuItems),
   standingMenuItems: many(standingMenuItems),
   dailyMenuChecks: many(dailyMenuChecks),
@@ -476,6 +501,13 @@ export const menuTemplateItemsRelations = relations(
 export const recipesRelations = relations(recipes, ({ one }) => ({
   user: one(users, {
     fields: [recipes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const workoutTipsRelations = relations(workoutTips, ({ one }) => ({
+  user: one(users, {
+    fields: [workoutTips.userId],
     references: [users.id],
   }),
 }));
