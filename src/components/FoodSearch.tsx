@@ -11,6 +11,92 @@ type Props = {
   confirmLabel?: string;
 };
 
+type RecentLists = {
+  last2Days: FoodSearchResult[];
+  lastLogged: FoodSearchResult[];
+  favorites: FoodSearchResult[];
+};
+
+const EMPTY_LISTS: RecentLists = {
+  last2Days: [],
+  lastLogged: [],
+  favorites: [],
+};
+
+export const FAVORITES_CHANGED = "food-favorites-changed";
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      aria-hidden
+      fill={filled ? "#ef4444" : "none"}
+      stroke={filled ? "#ef4444" : "currentColor"}
+      strokeWidth="1.75"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+      />
+    </svg>
+  );
+}
+
+type RecentSection = "last2Days" | "lastLogged" | "favorites";
+
+const RECENT_TABS: Array<{
+  id: RecentSection;
+  label: string;
+  short: string;
+}> = [
+  { id: "last2Days", label: "Last 2 days", short: "2 days" },
+  { id: "lastLogged", label: "Last logged", short: "Logged" },
+  { id: "favorites", label: "Favorites", short: "Favs" },
+];
+
+function FoodChipList({
+  foods,
+  onPick,
+  showHeart,
+  onUnfavorite,
+}: {
+  foods: FoodSearchResult[];
+  onPick: (food: FoodSearchResult) => void;
+  showHeart?: boolean;
+  onUnfavorite?: (food: FoodSearchResult) => void;
+}) {
+  if (foods.length === 0) {
+    return <p className="text-xs text-[var(--muted)]">Nothing yet</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {foods.map((r) => (
+        <span key={r.id} className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPick(r)}
+            className="rounded-full border border-[var(--border)] px-3 py-1 text-xs hover:border-[var(--accent)]"
+          >
+            {r.name}
+          </button>
+          {showHeart && onUnfavorite ? (
+            <button
+              type="button"
+              aria-label={`Remove ${r.name} from favorites`}
+              onClick={() => onUnfavorite(r)}
+              className="shrink-0 p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+            >
+              <HeartIcon filled />
+            </button>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function FoodSearch({
   onSelect,
   onManual,
@@ -18,7 +104,8 @@ export function FoodSearch({
 }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FoodSearchResult[]>([]);
-  const [recent, setRecent] = useState<FoodSearchResult[]>([]);
+  const [lists, setLists] = useState<RecentLists>(EMPTY_LISTS);
+  const [activeSection, setActiveSection] = useState<RecentSection | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<FoodSearchResult | null>(null);
@@ -29,20 +116,45 @@ export function FoodSearch({
   const [cameraReady, setCameraReady] = useState(false);
   const [detectorSupported, setDetectorSupported] = useState(true);
   const [scanError, setScanError] = useState("");
+  const [favHint, setFavHint] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectLoopRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const favHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const field =
     "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]";
 
-  useEffect(() => {
+  const loadLists = useCallback(() => {
     fetch("/api/foods/search?recent=1")
       .then((r) => r.json())
-      .then((d) => setRecent(d.results ?? []))
+      .then((d) =>
+        setLists({
+          last2Days: d.last2Days ?? [],
+          lastLogged: d.lastLogged ?? [],
+          favorites: d.favorites ?? [],
+        }),
+      )
       .catch(() => {});
   }, []);
+
+  const flashFavHint = useCallback((msg: string) => {
+    setFavHint(msg);
+    if (favHintTimer.current) clearTimeout(favHintTimer.current);
+    favHintTimer.current = setTimeout(() => setFavHint(""), 2200);
+  }, []);
+
+  useEffect(() => {
+    loadLists();
+    function onFavChange(e: Event) {
+      loadLists();
+      const detail = (e as CustomEvent<{ reason?: string }>).detail;
+      if (detail?.reason === "full") flashFavHint("Favorites is full");
+    }
+    window.addEventListener(FAVORITES_CHANGED, onFavChange);
+    return () => window.removeEventListener(FAVORITES_CHANGED, onFavChange);
+  }, [loadLists, flashFavHint]);
 
   const search = useCallback((q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -77,6 +189,7 @@ export function FoodSearch({
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (favHintTimer.current) clearTimeout(favHintTimer.current);
       stopScanner();
     };
   }, [stopScanner]);
@@ -249,10 +362,19 @@ export function FoodSearch({
     setQuery("");
     setQuantity("1");
     setMlAmount("250");
-    fetch("/api/foods/search?recent=1")
-      .then((r) => r.json())
-      .then((d) => setRecent(d.results ?? []))
-      .catch(() => {});
+    loadLists();
+  }
+
+  async function unfavorite(food: FoodSearchResult) {
+    if (!food.savedFoodId) return;
+    const res = await fetch("/api/foods/favorite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ savedFoodId: food.savedFoodId, pinned: false }),
+    });
+    if (!res.ok) return;
+    window.dispatchEvent(new Event(FAVORITES_CHANGED));
+    loadLists();
   }
 
   const quantityNum = Number(quantity);
@@ -386,21 +508,58 @@ export function FoodSearch({
         </div>
       ) : null}
 
-      {recent.length > 0 && !selected ? (
-        <div>
-          <p className="text-xs text-[var(--muted)] mb-2">Recent & favorites</p>
-          <div className="flex flex-wrap gap-2">
-            {recent.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => pickFood(r)}
-                className="rounded-full border border-[var(--border)] px-3 py-1 text-xs hover:border-[var(--accent)]"
-              >
-                {r.name}
-              </button>
-            ))}
+      {!selected ? (
+        <div className="space-y-2">
+          <p className="text-xs text-[var(--muted)]">Recent & favorites</p>
+          {favHint ? (
+            <p className="text-xs text-[var(--accent)]">{favHint}</p>
+          ) : null}
+          <div
+            className="flex gap-0.5 border-b border-[var(--border)]"
+            role="tablist"
+            aria-label="Recent food lists"
+          >
+            {RECENT_TABS.map((tab) => {
+              const isActive = activeSection === tab.id;
+              const count = lists[tab.id].length;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() =>
+                    setActiveSection((cur) => (cur === tab.id ? null : tab.id))
+                  }
+                  className={`flex-1 min-w-0 px-1.5 sm:px-3 py-2.5 text-xs sm:text-sm text-center transition-colors border-b-2 -mb-px ${
+                    isActive
+                      ? "border-[var(--accent)] text-[var(--accent)]"
+                      : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.short}</span>
+                  {count > 0 ? (
+                    <span className="opacity-60"> · {count}</span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
+          {activeSection ? (
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+              <FoodChipList
+                foods={lists[activeSection]}
+                onPick={pickFood}
+                showHeart={activeSection === "favorites"}
+                onUnfavorite={
+                  activeSection === "favorites"
+                    ? (f) => void unfavorite(f)
+                    : undefined
+                }
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

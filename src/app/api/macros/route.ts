@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { jsonError, jsonOk, requireUser } from "@/lib/api";
-import { cacheOffResult } from "@/lib/food-search";
+import { cacheOffResult, stripPortionFromName } from "@/lib/food-search";
 import { caloriesFromMacros, scaleMacrosByQuantity, sumMacros } from "@/lib/macros";
 import { todayISODate } from "@/lib/tdee";
 
@@ -28,26 +28,43 @@ export async function GET(req: Request) {
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const savedRows =
+  const [savedRows, pinnedRows] = await Promise.all([
     savedIds.length > 0
-      ? await db.query.savedFoods.findMany({
+      ? db.query.savedFoods.findMany({
           where: and(
             eq(schema.savedFoods.userId, authz.userId),
             inArray(schema.savedFoods.id, savedIds),
           ),
         })
-      : [];
+      : Promise.resolve([]),
+    db.query.savedFoods.findMany({
+      where: and(
+        eq(schema.savedFoods.userId, authz.userId),
+        eq(schema.savedFoods.pinned, true),
+      ),
+      columns: { id: true, name: true },
+    }),
+  ]);
   const savedById = new Map(savedRows.map((row) => [row.id, row]));
+  const pinnedIds = new Set(pinnedRows.map((row) => row.id));
+  const pinnedNames = new Set(
+    pinnedRows.map((row) => row.name.toLowerCase()),
+  );
 
   const enriched = foods.map((f) => {
     const q = f.quantity && f.quantity > 0 ? f.quantity : 1;
     const saved = f.savedFoodId ? savedById.get(f.savedFoodId) : undefined;
+    const nameKey = stripPortionFromName(f.name).toLowerCase();
     return {
       ...f,
       servingLabel: saved?.servingLabel ?? "1 serving",
       servingProteinG: saved?.proteinG ?? Math.round((f.proteinG / q) * 10) / 10,
       servingCarbsG: saved?.carbsG ?? Math.round((f.carbsG / q) * 10) / 10,
       servingFatG: saved?.fatG ?? Math.round((f.fatG / q) * 10) / 10,
+      favorited:
+        Boolean(saved?.pinned) ||
+        (f.savedFoodId != null && pinnedIds.has(f.savedFoodId)) ||
+        pinnedNames.has(nameKey),
     };
   });
 

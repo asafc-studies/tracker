@@ -1,5 +1,10 @@
 import { jsonOk, requireUser } from "@/lib/api";
-import { getRecentFoods, getPinnedFoods, searchFoods } from "@/lib/food-search";
+import {
+  getLast2DaysFoods,
+  getLastLoggedFoods,
+  getPinnedFoods,
+  searchFoods,
+} from "@/lib/food-search";
 
 export async function GET(req: Request) {
   const authz = await requireUser();
@@ -10,11 +15,12 @@ export async function GET(req: Request) {
   const recent = searchParams.get("recent");
 
   if (recent === "1") {
-    const [recentFoods, pinned] = await Promise.all([
-      getRecentFoods(authz.userId),
+    const [last2Days, lastLogged, favorites] = await Promise.all([
+      getLast2DaysFoods(authz.userId),
+      getLastLoggedFoods(authz.userId),
       getPinnedFoods(authz.userId),
     ]);
-    return jsonOk({ results: [...pinned, ...recentFoods] });
+    return jsonOk({ last2Days, lastLogged, favorites });
   }
 
   const results = await searchFoods(authz.userId, q);

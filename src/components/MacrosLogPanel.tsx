@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FoodSearch, type FoodSearchResult } from "@/components/FoodSearch";
+import {
+  FoodSearch,
+  FAVORITES_CHANGED,
+  type FoodSearchResult,
+} from "@/components/FoodSearch";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { SleepUndersleepTip } from "@/components/SleepUndersleepTip";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
@@ -28,6 +32,7 @@ type Food = {
   servingProteinG?: number;
   servingCarbsG?: number;
   servingFatG?: number;
+  favorited?: boolean;
 };
 
 type MacrosPayload = {
@@ -90,6 +95,8 @@ export function MacrosLogPanel({ date }: Props) {
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [copyingAll, setCopyingAll] = useState(false);
   const [copyHint, setCopyHint] = useState("");
+  const [favHint, setFavHint] = useState("");
+  const [togglingFavId, setTogglingFavId] = useState<string | null>(null);
 
   const field = nutritionFieldClass();
 
@@ -288,6 +295,39 @@ export function MacrosLogPanel({ date }: Props) {
     }
   }
 
+  async function toggleFavorite(food: Food) {
+    if (togglingFavId) return;
+    setTogglingFavId(food.id);
+    setFavHint("");
+    try {
+      const data = await apiFetch<{
+        ok: boolean;
+        reason?: string;
+        favorited?: boolean;
+        savedFoodId?: string;
+      }>("/api/foods/favorite", {
+        method: "POST",
+        body: JSON.stringify({
+          foodLogId: food.id,
+          savedFoodId: food.savedFoodId,
+          pinned: !food.favorited,
+        }),
+      });
+      if (!data.ok && data.reason === "full") {
+        setFavHint("Favorites is full");
+        window.dispatchEvent(
+          new CustomEvent(FAVORITES_CHANGED, { detail: { reason: "full" } }),
+        );
+        window.setTimeout(() => setFavHint(""), 2200);
+        return;
+      }
+      await refreshAfterWrite();
+      window.dispatchEvent(new Event(FAVORITES_CHANGED));
+    } finally {
+      setTogglingFavId(null);
+    }
+  }
+
   function handleSearchSelect(
     food: FoodSearchResult,
     quantity: number,
@@ -353,6 +393,14 @@ export function MacrosLogPanel({ date }: Props) {
     const t = setTimeout(() => setCopyHint(""), 3000);
     return () => clearTimeout(t);
   }, [copyHint]);
+
+  useEffect(() => {
+    function onFavChange() {
+      void refreshAfterWrite();
+    }
+    window.addEventListener(FAVORITES_CHANGED, onFavChange);
+    return () => window.removeEventListener(FAVORITES_CHANGED, onFavChange);
+  }, [queryClient, date]);
 
   return (
     <div className="space-y-6">
@@ -626,6 +674,9 @@ export function MacrosLogPanel({ date }: Props) {
         {copyHint ? (
           <p className="text-xs text-[var(--accent)]">{copyHint}</p>
         ) : null}
+        {favHint ? (
+          <p className="text-xs text-[var(--accent)]">{favHint}</p>
+        ) : null}
         {foods.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">No foods logged yet.</p>
         ) : (
@@ -634,7 +685,33 @@ export function MacrosLogPanel({ date }: Props) {
               const editing = editingFoodId === f.id;
               const qty = f.quantity ?? 1;
               return (
-                <li key={f.id} className="px-3 py-3 bg-[var(--surface)]">
+                <li key={f.id} className="relative px-3 py-3 pr-10 bg-[var(--surface)]">
+                  <button
+                    type="button"
+                    disabled={togglingFavId === f.id}
+                    aria-label={
+                      f.favorited
+                        ? `Remove ${f.name} from favorites`
+                        : `Add ${f.name} to favorites`
+                    }
+                    onClick={() => void toggleFavorite(f)}
+                    className="absolute top-2 right-2 p-1.5 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      aria-hidden
+                      fill={f.favorited ? "#ef4444" : "none"}
+                      stroke={f.favorited ? "#ef4444" : "currentColor"}
+                      strokeWidth="1.75"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                      />
+                    </svg>
+                  </button>
                   {editing ? (
                     <div className="space-y-3">
                       <label className="space-y-1 block">

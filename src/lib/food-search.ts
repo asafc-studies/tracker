@@ -9,7 +9,8 @@ import { fetchOffByBarcode, searchOffProducts } from "@/lib/open-food-facts";
 import { searchFdcProducts } from "@/lib/usda-fdc";
 
 const RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
-const RECENT_EVENT_LIMIT = 20;
+const LAST_LOGGED_LIMIT = 15;
+export const FAVORITES_LIMIT = 15;
 
 /** Strip legacy "Name (portion)" suffixes from logged food names. */
 export function stripPortionFromName(name: string) {
@@ -305,34 +306,13 @@ export async function cacheOffResult(
   return saved.id;
 }
 
-export async function getRecentFoods(userId: string, limit = RECENT_EVENT_LIMIT) {
+async function enrichLogsAsSearchResults(
+  userId: string,
+  logs: (typeof schema.foodLogs.$inferSelect)[],
+  limit: number,
+  idPrefix: string,
+) {
   const db = await getDb();
-  const cutoff = new Date(Date.now() - RECENT_WINDOW_MS);
-
-  // Last 48h ∪ last 20 log events (Menu / Ideas / Guess / search all write food_logs).
-  const [byTime, byCount] = await Promise.all([
-    db.query.foodLogs.findMany({
-      where: and(
-        eq(schema.foodLogs.userId, userId),
-        gte(schema.foodLogs.createdAt, cutoff),
-      ),
-      orderBy: [desc(schema.foodLogs.createdAt)],
-      limit: 100,
-    }),
-    db.query.foodLogs.findMany({
-      where: eq(schema.foodLogs.userId, userId),
-      orderBy: [desc(schema.foodLogs.createdAt)],
-      limit: RECENT_EVENT_LIMIT,
-    }),
-  ]);
-
-  const byId = new Map<string, (typeof byCount)[number]>();
-  for (const log of byTime) byId.set(log.id, log);
-  for (const log of byCount) byId.set(log.id, log);
-  const logs = [...byId.values()].sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-  );
-
   const savedIds = [
     ...new Set(
       logs.map((log) => log.savedFoodId).filter((id): id is string => Boolean(id)),
@@ -372,11 +352,37 @@ export async function getRecentFoods(userId: string, limit = RECENT_EVENT_LIMIT)
         linked,
         linked ? undefined : findReferenceMatch(log.name),
       ),
-      id: `recent-${log.id}`,
+      id: `${idPrefix}-${log.id}`,
     });
     if (results.length >= limit) break;
   }
   return results;
+}
+
+/** Unique foods logged in the last 48 hours (any source). */
+export async function getLast2DaysFoods(userId: string) {
+  const db = await getDb();
+  const cutoff = new Date(Date.now() - RECENT_WINDOW_MS);
+  const logs = await db.query.foodLogs.findMany({
+    where: and(
+      eq(schema.foodLogs.userId, userId),
+      gte(schema.foodLogs.createdAt, cutoff),
+    ),
+    orderBy: [desc(schema.foodLogs.createdAt)],
+    limit: 100,
+  });
+  return enrichLogsAsSearchResults(userId, logs, 40, "d2");
+}
+
+/** Last 15 log events, deduped by food name. */
+export async function getLastLoggedFoods(userId: string) {
+  const db = await getDb();
+  const logs = await db.query.foodLogs.findMany({
+    where: eq(schema.foodLogs.userId, userId),
+    orderBy: [desc(schema.foodLogs.createdAt)],
+    limit: LAST_LOGGED_LIMIT,
+  });
+  return enrichLogsAsSearchResults(userId, logs, LAST_LOGGED_LIMIT, "last");
 }
 
 export async function getPinnedFoods(userId: string) {
@@ -387,7 +393,110 @@ export async function getPinnedFoods(userId: string) {
       eq(schema.savedFoods.pinned, true),
     ),
     orderBy: [desc(schema.savedFoods.createdAt)],
-    limit: 10,
+    limit: FAVORITES_LIMIT,
   });
   return rows.map(toSavedResult);
+}
+
+export type FavoriteToggleResult =
+  | { ok: true; favorited: boolean; savedFoodId: string }
+  | { ok: false; reason: "full" | "not_found" };
+
+/** Pin/unpin a saved food (favorites). Creates a saved food from a log when needed. */
+export async function toggleFoodFavorite(
+  userId: string,
+  opts: {
+    pinned: boolean;
+    savedFoodId?: string | null;
+    foodLogId?: string | null;
+  },
+): Promise<FavoriteToggleResult> {
+  const db = await getDb();
+  let savedFoodId = opts.savedFoodId ? String(opts.savedFoodId) : null;
+  let log: typeof schema.foodLogs.$inferSelect | undefined;
+
+  if (opts.foodLogId) {
+    log = await db.query.foodLogs.findFirst({
+      where: and(
+        eq(schema.foodLogs.id, opts.foodLogId),
+        eq(schema.foodLogs.userId, userId),
+      ),
+    });
+    if (!log) return { ok: false, reason: "not_found" };
+    if (!savedFoodId) savedFoodId = log.savedFoodId;
+  }
+
+  let saved = savedFoodId
+    ? await db.query.savedFoods.findFirst({
+        where: and(
+          eq(schema.savedFoods.id, savedFoodId),
+          eq(schema.savedFoods.userId, userId),
+        ),
+      })
+    : undefined;
+
+  // Unpinning: also match a pinned favorite by food name (any log instance).
+  if (!opts.pinned && log && !saved?.pinned) {
+    const key = stripPortionFromName(log.name).toLowerCase();
+    const pinnedAll = await db.query.savedFoods.findMany({
+      where: and(
+        eq(schema.savedFoods.userId, userId),
+        eq(schema.savedFoods.pinned, true),
+      ),
+      limit: FAVORITES_LIMIT,
+    });
+    const byName = pinnedAll.find((row) => row.name.toLowerCase() === key);
+    if (byName) {
+      saved = byName;
+      savedFoodId = byName.id;
+    }
+  }
+
+  if (!saved && log && opts.pinned) {
+    const qty = log.quantity && log.quantity > 0 ? log.quantity : 1;
+    const [created] = await db
+      .insert(schema.savedFoods)
+      .values({
+        userId,
+        name: stripPortionFromName(log.name),
+        brand: log.brand,
+        source: "history",
+        servingLabel: "1 serving",
+        proteinG: Math.round((log.proteinG / qty) * 10) / 10,
+        carbsG: Math.round((log.carbsG / qty) * 10) / 10,
+        fatG: Math.round((log.fatG / qty) * 10) / 10,
+        calories: Math.round(log.calories / qty),
+        pinned: false,
+      })
+      .returning();
+    saved = created;
+    savedFoodId = created.id;
+    await db
+      .update(schema.foodLogs)
+      .set({ savedFoodId: created.id })
+      .where(eq(schema.foodLogs.id, log.id));
+  }
+
+  if (!saved || !savedFoodId) return { ok: false, reason: "not_found" };
+
+  if (opts.pinned && !saved.pinned) {
+    const pinnedRows = await db.query.savedFoods.findMany({
+      where: and(
+        eq(schema.savedFoods.userId, userId),
+        eq(schema.savedFoods.pinned, true),
+      ),
+      columns: { id: true },
+      limit: FAVORITES_LIMIT,
+    });
+    if (pinnedRows.length >= FAVORITES_LIMIT) {
+      return { ok: false, reason: "full" };
+    }
+  }
+
+  await db
+    .update(schema.savedFoods)
+    .set({ pinned: opts.pinned })
+    .where(eq(schema.savedFoods.id, saved.id));
+
+  return { ok: true, favorited: opts.pinned, savedFoodId: saved.id };
 }
