@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, or } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { parseVolumeMl } from "@/lib/serving-size";
 import {
@@ -7,6 +7,9 @@ import {
 } from "@/lib/food-reference";
 import { fetchOffByBarcode, searchOffProducts } from "@/lib/open-food-facts";
 import { searchFdcProducts } from "@/lib/usda-fdc";
+
+const RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
+const RECENT_EVENT_LIMIT = 20;
 
 /** Strip legacy "Name (portion)" suffixes from logged food names. */
 export function stripPortionFromName(name: string) {
@@ -302,13 +305,33 @@ export async function cacheOffResult(
   return saved.id;
 }
 
-export async function getRecentFoods(userId: string, limit = 10) {
+export async function getRecentFoods(userId: string, limit = RECENT_EVENT_LIMIT) {
   const db = await getDb();
-  const logs = await db.query.foodLogs.findMany({
-    where: eq(schema.foodLogs.userId, userId),
-    orderBy: [desc(schema.foodLogs.createdAt)],
-    limit: 30,
-  });
+  const cutoff = new Date(Date.now() - RECENT_WINDOW_MS);
+
+  // Last 48h ∪ last 20 log events (Menu / Ideas / Guess / search all write food_logs).
+  const [byTime, byCount] = await Promise.all([
+    db.query.foodLogs.findMany({
+      where: and(
+        eq(schema.foodLogs.userId, userId),
+        gte(schema.foodLogs.createdAt, cutoff),
+      ),
+      orderBy: [desc(schema.foodLogs.createdAt)],
+      limit: 100,
+    }),
+    db.query.foodLogs.findMany({
+      where: eq(schema.foodLogs.userId, userId),
+      orderBy: [desc(schema.foodLogs.createdAt)],
+      limit: RECENT_EVENT_LIMIT,
+    }),
+  ]);
+
+  const byId = new Map<string, (typeof byCount)[number]>();
+  for (const log of byTime) byId.set(log.id, log);
+  for (const log of byCount) byId.set(log.id, log);
+  const logs = [...byId.values()].sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+  );
 
   const savedIds = [
     ...new Set(
