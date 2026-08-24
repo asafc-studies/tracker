@@ -450,6 +450,90 @@ export const workoutPlanChecks = sqliteTable("workout_plan_checks", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+/**
+ * User-owned daily checklists. Items persist across days; per-day checks
+ * live in checklist_checks (absence = unchecked for that date).
+ */
+export const checklistLists = sqliteTable("checklist_lists", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export const checklistItems = sqliteTable("checklist_items", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  listId: text("listId")
+    .notNull()
+    .references(() => checklistLists.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  /** Reminder clock time HH:MM (local). */
+  dueTime: text("dueTime"),
+  /**
+   * off | daily | weekdays | weekly
+   * weekly uses remindWeekday (0=Sun … 6=Sat).
+   */
+  remindFreq: text("remindFreq", {
+    enum: ["off", "daily", "weekdays", "weekly"],
+  })
+    .notNull()
+    .default("off"),
+  remindWeekday: integer("remindWeekday"),
+  /** YYYY-MM-DD last push/local reminder sent (dedupe). */
+  lastRemindedDate: text("lastRemindedDate"),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+/** Browser Web Push subscriptions for checklist reminders. */
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  /** IANA tz from the device at subscribe time. */
+  timezone: text("timezone").notNull().default("UTC"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export const checklistChecks = sqliteTable("checklist_checks", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  date: text("date").notNull(),
+  itemId: text("itemId")
+    .notNull()
+    .references(() => checklistItems.id, { onDelete: "cascade" }),
+  /** When the item was checked (editable for retro logs). */
+  checkedAt: integer("checkedAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles),
   accounts: many(accounts),
@@ -467,6 +551,9 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   workoutSessions: many(workoutSessions),
   workoutPlans: many(workoutPlans),
   workoutPlanChecks: many(workoutPlanChecks),
+  checklistLists: many(checklistLists),
+  checklistChecks: many(checklistChecks),
+  pushSubscriptions: many(pushSubscriptions),
 }));
 
 export const standingMenuItemsRelations = relations(
@@ -554,6 +641,34 @@ export const workoutPlanChecksRelations = relations(
     session: one(workoutSessions, {
       fields: [workoutPlanChecks.sessionId],
       references: [workoutSessions.id],
+    }),
+  }),
+);
+
+export const checklistListsRelations = relations(
+  checklistLists,
+  ({ many }) => ({
+    items: many(checklistItems),
+  }),
+);
+
+export const checklistItemsRelations = relations(
+  checklistItems,
+  ({ one, many }) => ({
+    list: one(checklistLists, {
+      fields: [checklistItems.listId],
+      references: [checklistLists.id],
+    }),
+    checks: many(checklistChecks),
+  }),
+);
+
+export const checklistChecksRelations = relations(
+  checklistChecks,
+  ({ one }) => ({
+    item: one(checklistItems, {
+      fields: [checklistChecks.itemId],
+      references: [checklistItems.id],
     }),
   }),
 );

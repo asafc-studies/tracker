@@ -5,6 +5,7 @@ const withPWA = withPWAInit({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
   register: true,
+  customWorkerSrc: "worker",
   fallbacks: {
     document: "/",
   },
@@ -58,7 +59,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@libsql/client"],
+  serverExternalPackages: ["@libsql/client", "web-push"],
   turbopack: {
     root: process.cwd(),
   },

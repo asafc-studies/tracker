@@ -10,4 +10,6 @@ export const queryKeys = {
   recipes: ["nutrition", "recipes"] as const,
   workoutTips: (range: string) => ["workout-tips", range] as const,
   workoutPlans: ["workout-plans"] as const,
+  checklists: (date: string) => ["checklists", date] as const,
+  checklistHistory: (date: string) => ["checklist-history", date] as const,
 } as const;

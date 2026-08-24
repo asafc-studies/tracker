@@ -19,11 +19,13 @@ export const authConfig = {
       const isPublic =
         pathname.startsWith("/login") ||
         pathname.startsWith("/api/auth") ||
+        pathname.startsWith("/api/cron") ||
         pathname.startsWith("/icons") ||
         pathname === "/manifest.webmanifest" ||
         pathname === "/sw.js" ||
         pathname.startsWith("/workbox-") ||
         pathname.startsWith("/swe-worker-") ||
+        pathname.startsWith("/worker-") ||
         pathname.startsWith("/_next") ||
         pathname === "/favicon.ico";
 

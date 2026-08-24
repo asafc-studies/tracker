@@ -263,6 +263,47 @@ const INCREMENTAL = [
   )`,
   `CREATE INDEX IF NOT EXISTS workout_tips_user_date ON workout_tips(userId, date)`,
   `ALTER TABLE workout_tips ADD COLUMN sessionJson TEXT NOT NULL DEFAULT 'null'`,
+  `CREATE TABLE IF NOT EXISTS checklist_lists (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS checklist_lists_user ON checklist_lists(userId)`,
+  `CREATE TABLE IF NOT EXISTS checklist_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    listId TEXT NOT NULL REFERENCES checklist_lists(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    dueTime TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS checklist_items_list ON checklist_items(listId)`,
+  `CREATE TABLE IF NOT EXISTS checklist_checks (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    itemId TEXT NOT NULL REFERENCES checklist_items(id) ON DELETE CASCADE,
+    checkedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS checklist_checks_user_date ON checklist_checks(userId, date)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS checklist_checks_unique ON checklist_checks(userId, date, itemId)`,
+  `ALTER TABLE checklist_items ADD COLUMN remindFreq TEXT NOT NULL DEFAULT 'off'`,
+  `ALTER TABLE checklist_items ADD COLUMN remindWeekday INTEGER`,
+  `ALTER TABLE checklist_items ADD COLUMN lastRemindedDate TEXT`,
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY NOT NULL,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(userId)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
 ];
 
 export async function ensureMigrated(client: Client) {
