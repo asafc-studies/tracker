@@ -14,53 +14,104 @@ function urlBase64ToUint8Array(base64String: string) {
 
 type VapidPayload = { configured: boolean; publicKey: string | null };
 
+type Status =
+  | "loading"
+  | "unsupported"
+  | "need-permission"
+  | "local"
+  | "push"
+  | "denied";
+
 export function ReminderEnableBanner() {
-  const [status, setStatus] = useState<
-    "loading" | "unsupported" | "off" | "on" | "unavailable"
-  >("loading");
+  const [status, setStatus] = useState<Status>("loading");
+  const [pushReady, setPushReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
-    if (
-      typeof window === "undefined" ||
-      !("Notification" in window) ||
-      !("serviceWorker" in navigator) ||
-      !("PushManager" in window)
-    ) {
+    if (typeof window === "undefined" || !("Notification" in window)) {
       setStatus("unsupported");
       return;
     }
+
+    let vapidOk = false;
     try {
       const vapid = await apiFetch<VapidPayload>("/api/push/subscribe");
-      if (!vapid.configured || !vapid.publicKey) {
-        setStatus("unavailable");
-        return;
-      }
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      setStatus(sub ? "on" : "off");
+      vapidOk = Boolean(vapid.configured && vapid.publicKey);
     } catch {
-      setStatus("unavailable");
+      vapidOk = false;
     }
+    setPushReady(vapidOk);
+
+    const perm = Notification.permission;
+    if (perm === "denied") {
+      setStatus("denied");
+      return;
+    }
+    if (perm !== "granted") {
+      setStatus("need-permission");
+      return;
+    }
+
+    if (
+      vapidOk &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window
+    ) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setStatus(sub ? "push" : "local");
+        return;
+      } catch {
+        /* fall through to local */
+      }
+    }
+    setStatus("local");
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  async function enable() {
+  async function enableLocal() {
     setBusy(true);
     setError("");
     try {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") {
+        setStatus(perm === "denied" ? "denied" : "need-permission");
         setError("Notification permission denied");
         return;
       }
+      setStatus("local");
+      // Optional: subscribe to push if server is configured.
+      if (pushReady) await enablePush(false);
+      else await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function enablePush(fromButton = true) {
+    if (fromButton) {
+      setBusy(true);
+      setError("");
+    }
+    try {
+      if (Notification.permission !== "granted") {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") {
+          setError("Notification permission denied");
+          return;
+        }
+      }
       const vapid = await apiFetch<VapidPayload>("/api/push/subscribe");
       if (!vapid.publicKey) {
-        setError("Push not configured on server");
+        setError("Push not configured (VAPID keys) — local alerts still work");
+        setStatus("local");
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -79,28 +130,31 @@ export function ReminderEnableBanner() {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
-      setStatus("on");
+      setStatus("push");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to enable");
+      setError(e instanceof Error ? e.message : "Failed to enable push");
+      setStatus("local");
     } finally {
-      setBusy(false);
+      if (fromButton) setBusy(false);
     }
   }
 
-  async function disable() {
+  async function disablePush() {
     setBusy(true);
     setError("");
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await apiFetch("/api/push/subscribe", {
-          method: "DELETE",
-          body: JSON.stringify({ endpoint: sub.endpoint }),
-        });
-        await sub.unsubscribe();
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await apiFetch("/api/push/subscribe", {
+            method: "DELETE",
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
       }
-      setStatus("off");
+      setStatus(Notification.permission === "granted" ? "local" : "need-permission");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to disable");
     } finally {
@@ -110,11 +164,11 @@ export function ReminderEnableBanner() {
 
   if (status === "loading" || status === "unsupported") return null;
 
-  if (status === "unavailable") {
+  if (status === "denied") {
     return (
       <p className="text-xs text-[var(--muted)] rounded-md border border-[var(--border)] px-3 py-2">
-        Device reminders need VAPID keys on the server (see env). You can still
-        set reminder schedules on items.
+        Notifications are blocked in the browser. Allow them for this site to
+        get in-app reminder pings.
       </p>
     );
   }
@@ -122,29 +176,42 @@ export function ReminderEnableBanner() {
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex flex-wrap items-center gap-2">
       <p className="text-xs text-[var(--muted)] flex-1 min-w-[12rem]">
-        {status === "on"
-          ? "Push on — morning digest when closed. Opening the app also catches missed reminders."
-          : "Enable push for a morning digest. Opening the app still catches anything you missed today."}
+        {status === "push"
+          ? "Alerts on — in-app at due time + morning push digest when closed."
+          : status === "local"
+            ? "In-app alerts on (app must be open). Add VAPID keys for closed-app morning digests."
+            : "Allow notifications so 19:00-style reminders can ping while the app is open."}
       </p>
-      {status === "on" ? (
+      {status === "need-permission" ? (
         <button
           type="button"
           disabled={busy}
-          onClick={() => void disable()}
-          className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] min-h-[40px] px-2"
-        >
-          Disable
-        </button>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void enable()}
+          onClick={() => void enableLocal()}
           className="rounded-md bg-[var(--accent)] text-[var(--background)] px-3 py-1.5 text-xs font-medium min-h-[40px] disabled:opacity-50"
         >
-          Enable reminders
+          Allow notifications
         </button>
-      )}
+      ) : null}
+      {status === "local" && pushReady ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void enablePush()}
+          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs min-h-[40px] hover:border-[var(--accent)]"
+        >
+          Add morning push
+        </button>
+      ) : null}
+      {status === "push" ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void disablePush()}
+          className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] min-h-[40px] px-2"
+        >
+          Disable push
+        </button>
+      ) : null}
       {error ? <p className="w-full text-xs text-red-400">{error}</p> : null}
     </div>
   );
