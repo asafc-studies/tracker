@@ -423,6 +423,7 @@ export function FoodSearch({
                   <span className="text-xs text-[var(--muted)]">
                     {r.brand ? `${r.brand} · ` : ""}
                     {formatMacroShort(r)} · {r.servingLabel}
+                    {r.source === "history" ? " · logged before" : ""}
                     {r.source === "reference" ? " · staple" : ""}
                     {r.dataSourceLabel ? ` · ${r.dataSourceLabel}` : ""}
                     {r.offScope === "global" && !r.dataSourceLabel

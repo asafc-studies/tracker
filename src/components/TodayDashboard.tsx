@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/shell/AppShell";
 import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { NutritionCoach } from "@/components/NutritionCoach";
 import { apiFetch } from "@/lib/api-fetch";
+import { writeMacrosLocal } from "@/lib/macros-local-cache";
 import {
   getMacroWarnings,
   progressRatio,
@@ -20,6 +21,7 @@ import { formatSleepWindow, qualityLabel, sleepDeficitTip } from "@/lib/sleep";
 import { todayISODate } from "@/lib/tdee";
 
 type ProfilePayload = {
+  userId?: string;
   profile: {
     weightKg: number | null;
     bodyFatPercent?: number | null;
@@ -40,6 +42,15 @@ type ProfilePayload = {
 };
 
 type MacrosPayload = {
+  foods?: Array<{
+    id: string;
+    name: string;
+    brand?: string | null;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    calories: number;
+  }>;
   totals: {
     proteinG: number;
     carbsG: number;
@@ -55,6 +66,7 @@ type LiftsPayload = {
 
 export function TodayDashboard() {
   const today = todayISODate();
+  const queryClient = useQueryClient();
 
   const profileQuery = useQuery({
     queryKey: queryKeys.profile,
@@ -63,10 +75,25 @@ export function TodayDashboard() {
 
   const macrosQuery = useQuery({
     queryKey: queryKeys.macros(today),
-    queryFn: () =>
-      apiFetch<MacrosPayload>(
+    queryFn: async () => {
+      const data = await apiFetch<MacrosPayload>(
         `/api/macros?date=${encodeURIComponent(today)}`,
-      ),
+      );
+      const userId =
+        profileQuery.data?.userId ??
+        (
+          queryClient.getQueryData(queryKeys.profile) as
+            | ProfilePayload
+            | undefined
+        )?.userId;
+      if (userId && data.foods) {
+        writeMacrosLocal(userId, today, {
+          foods: data.foods,
+          totals: data.totals,
+        });
+      }
+      return data;
+    },
   });
 
   const liftsQuery = useQuery({

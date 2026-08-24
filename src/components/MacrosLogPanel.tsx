@@ -17,6 +17,7 @@ import { formatMacroShort, getMacroWarnings, progressRatio, proteinBarFillClass,
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
+import { useMacrosQuery } from "@/lib/use-macros-query";
 
 type Food = {
   id: string;
@@ -33,16 +34,6 @@ type Food = {
   servingCarbsG?: number;
   servingFatG?: number;
   favorited?: boolean;
-};
-
-type MacrosPayload = {
-  foods: Food[];
-  totals: {
-    proteinG: number;
-    carbsG: number;
-    fatG: number;
-    calories: number;
-  };
 };
 
 type ProfilePayload = {
@@ -100,13 +91,7 @@ export function MacrosLogPanel({ date }: Props) {
 
   const field = nutritionFieldClass();
 
-  const macrosQuery = useQuery({
-    queryKey: queryKeys.macros(date),
-    queryFn: () =>
-      apiFetch<MacrosPayload>(
-        `/api/macros?date=${encodeURIComponent(date)}`,
-      ),
-  });
+  const macrosQuery = useMacrosQuery(date);
 
   const profileQuery = useQuery({
     queryKey: queryKeys.profile,

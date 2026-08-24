@@ -5,13 +5,14 @@ import {
   getPinnedFoods,
   searchFoods,
 } from "@/lib/food-search";
+import { sanitizeLikeQuery } from "@/lib/security";
 
 export async function GET(req: Request) {
   const authz = await requireUser();
   if ("error" in authz) return authz.error;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q") ?? "";
+  const q = sanitizeLikeQuery(searchParams.get("q") ?? "");
   const recent = searchParams.get("recent");
 
   if (recent === "1") {
@@ -22,6 +23,8 @@ export async function GET(req: Request) {
     ]);
     return jsonOk({ last2Days, lastLogged, favorites });
   }
+
+  if (q.length < 2) return jsonOk({ results: [] });
 
   const results = await searchFoods(authz.userId, q);
   return jsonOk({ results });

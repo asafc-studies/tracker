@@ -3,6 +3,12 @@ import { getDb, schema } from "@/db";
 import { jsonError, jsonOk, requireUser } from "@/lib/api";
 import { cacheOffResult, stripPortionFromName } from "@/lib/food-search";
 import { caloriesFromMacros, scaleMacrosByQuantity, sumMacros } from "@/lib/macros";
+import {
+  clampString,
+  isISODate,
+  MAX_BRAND_LEN,
+  MAX_FOOD_NAME_LEN,
+} from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 
 export async function GET(req: Request) {
@@ -11,6 +17,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const date = searchParams.get("date") || todayISODate();
+  if (!isISODate(date)) return jsonError("Invalid date");
 
   const db = await getDb();
   const foods = await db.query.foodLogs.findMany({
@@ -76,18 +83,31 @@ export async function POST(req: Request) {
   if ("error" in authz) return authz.error;
 
   const body = await req.json();
-  const name = String(body.name || "").trim();
+  const name = clampString(String(body.name || "").trim(), MAX_FOOD_NAME_LEN);
   const proteinG = Number(body.proteinG ?? 0);
   const carbsG = Number(body.carbsG ?? 0);
   const fatG = Number(body.fatG ?? 0);
   let calories = Number(body.calories ?? 0);
   const date = String(body.date || todayISODate());
-  const brand = body.brand ? String(body.brand) : null;
+  const brand = body.brand
+    ? clampString(String(body.brand), MAX_BRAND_LEN)
+    : null;
   const quantity = Number(body.quantity ?? 1);
   let savedFoodId = body.savedFoodId ? String(body.savedFoodId) : null;
 
   if (!name) return jsonError("Name is required");
+  if (!isISODate(date)) return jsonError("Invalid date");
   if (!Number.isFinite(proteinG) || !Number.isFinite(carbsG) || !Number.isFinite(fatG)) {
+    return jsonError("Invalid macros");
+  }
+  if (
+    proteinG < 0 ||
+    carbsG < 0 ||
+    fatG < 0 ||
+    proteinG > 10_000 ||
+    carbsG > 10_000 ||
+    fatG > 10_000
+  ) {
     return jsonError("Invalid macros");
   }
   if (!calories) calories = caloriesFromMacros(proteinG, carbsG, fatG);
@@ -200,7 +220,7 @@ export async function PATCH(req: Request) {
   } = {};
 
   if (hasName) {
-    const name = String(body.name || "").trim();
+    const name = clampString(String(body.name || "").trim(), MAX_FOOD_NAME_LEN);
     if (!name) return jsonError("Name is required");
     patch.name = name;
   }

@@ -6,11 +6,21 @@ import {
   type FoodSearchResult,
 } from "@/lib/food-reference";
 import { fetchOffByBarcode, searchOffProducts } from "@/lib/open-food-facts";
+import { sanitizeLikeQuery } from "@/lib/security";
+import { todayISODate } from "@/lib/tdee";
 import { searchFdcProducts } from "@/lib/usda-fdc";
 
 const RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
+const HISTORY_SEARCH_MONTHS = 6;
+const HISTORY_SEARCH_LIMIT = 60;
 const LAST_LOGGED_LIMIT = 15;
 export const FAVORITES_LIMIT = 15;
+
+function monthsAgoISO(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return todayISODate(d);
+}
 
 /** Strip legacy "Name (portion)" suffixes from logged food names. */
 export function stripPortionFromName(name: string) {
@@ -127,11 +137,12 @@ export async function searchFoods(
   query: string,
   countryCode = "il",
 ): Promise<FoodSearchResult[]> {
-  const q = query.trim();
+  const q = sanitizeLikeQuery(query);
   if (q.length < 2) return [];
 
   const db = await getDb();
   const pattern = `%${q}%`;
+  const historySince = monthsAgoISO(HISTORY_SEARCH_MONTHS);
 
   const [saved, recentLogs, profile] = await Promise.all([
     db.query.savedFoods.findMany({
@@ -145,13 +156,15 @@ export async function searchFoods(
       orderBy: [desc(schema.savedFoods.pinned), desc(schema.savedFoods.createdAt)],
       limit: 8,
     }),
+    // Past logged foods by name — last 6 months (bolognese from weeks ago, etc.)
     db.query.foodLogs.findMany({
       where: and(
         eq(schema.foodLogs.userId, userId),
+        gte(schema.foodLogs.date, historySince),
         like(schema.foodLogs.name, pattern),
       ),
-      orderBy: [desc(schema.foodLogs.createdAt)],
-      limit: 20,
+      orderBy: [desc(schema.foodLogs.date), desc(schema.foodLogs.createdAt)],
+      limit: HISTORY_SEARCH_LIMIT,
     }),
     db.query.profiles.findFirst({
       where: eq(schema.profiles.userId, userId),
@@ -198,10 +211,18 @@ export async function searchFoods(
     );
   }
 
+  const historyResults = Array.from(historyMap.values());
+  // History + saved first so past logs surface before catalog noise.
+  const localFirst = dedupeResults([
+    ...historyResults,
+    ...savedResults,
+    ...reference,
+  ]);
+
   let offResults: FoodSearchResult[] = [];
   let fdcResults: FoodSearchResult[] = [];
-  const localCount = savedResults.length + reference.length + historyMap.size;
-  if (localCount < 12) {
+  // Skip external APIs when past logs already match — keeps typing snappy.
+  if (localFirst.length < 8) {
     [offResults, fdcResults] = await Promise.all([
       searchOffProducts(q, cc, 8),
       searchFdcProducts(q, 8),
@@ -209,9 +230,7 @@ export async function searchFoods(
   }
 
   return dedupeResults([
-    ...savedResults,
-    ...reference,
-    ...Array.from(historyMap.values()),
+    ...localFirst,
     ...offResults,
     ...fdcResults,
   ]).slice(0, 15);
