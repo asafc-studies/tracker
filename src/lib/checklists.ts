@@ -48,7 +48,10 @@ function toIso(ms: Date | number | null | undefined): string | null {
   return d.toISOString();
 }
 
-/** Apply HH:MM onto a calendar date (local). Falls back to "now" on that date. */
+/**
+ * Legacy HH:MM → Date using the *process* timezone.
+ * Prefer absolute ISO from the client — server TZ is often UTC (Vercel).
+ */
 export function checkedAtForDate(
   date: string,
   timeHHMM?: string | null,
@@ -373,10 +376,14 @@ export async function setItemChecked(
   }
 
   let at: Date;
-  if (opts.checkedAt && opts.checkedAt.includes("T")) {
+  if (!opts.checkedAt) {
+    // Absolute "now" — correct in any server TZ.
+    at = new Date();
+  } else if (opts.checkedAt.includes("T")) {
     at = new Date(opts.checkedAt);
     if (Number.isNaN(at.getTime())) throw new Error("Invalid checkedAt");
   } else {
+    // Legacy HH:MM path (ambiguous on UTC servers) — clients should send ISO.
     at = checkedAtForDate(date, opts.checkedAt);
   }
 

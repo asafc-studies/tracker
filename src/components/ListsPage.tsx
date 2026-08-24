@@ -10,6 +10,10 @@ import type {
   ChecklistListView,
 } from "@/lib/checklists";
 import { queryKeys } from "@/lib/query-keys";
+import {
+  isoToLocalHHMM,
+  localDateTimeToISO,
+} from "@/lib/local-time";
 import type { RemindFreq } from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 
@@ -63,13 +67,6 @@ function remindLabel(freq: RemindFreq, weekday: number | null, time: string | nu
 function clampDate(d: string): string {
   const today = todayISODate();
   return d > today ? today : d;
-}
-
-function isoToHHMM(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 const field =
@@ -230,7 +227,8 @@ export function ListsPage() {
       itemId,
       date,
       checked,
-      checkedAt: checked ? isoToHHMM(new Date().toISOString()) : null,
+      // Absolute instant from the browser — never HH:MM (server TZ ≠ user TZ).
+      checkedAt: checked ? new Date().toISOString() : null,
     });
   }
 
@@ -240,7 +238,7 @@ export function ListsPage() {
       itemId,
       date,
       checked: true,
-      checkedAt: hhmm,
+      checkedAt: localDateTimeToISO(date, hhmm),
     });
   }
 
@@ -436,7 +434,7 @@ export function ListsPage() {
                     <input
                       type="time"
                       className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-sm text-[var(--foreground)] min-h-[40px]"
-                      value={isoToHHMM(entry.checkedAt)}
+                      value={isoToLocalHHMM(entry.checkedAt)}
                       onChange={(e) =>
                         void updateCheckTime(entry.itemId, e.target.value)
                       }
@@ -655,7 +653,7 @@ function ListCard({
                           <input
                             type="time"
                             className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-1 text-xs text-[var(--foreground)]"
-                            value={isoToHHMM(item.checkedAt)}
+                            value={isoToLocalHHMM(item.checkedAt)}
                             onChange={(e) =>
                               onTimeChange(item.id, e.target.value)
                             }

@@ -108,6 +108,7 @@ export function TodayRemindersPanel() {
           itemId,
           date: today,
           checked: true,
+          checkedAt: new Date().toISOString(),
         }),
       });
       await queryClient.invalidateQueries({ queryKey: ["checklists"] });
