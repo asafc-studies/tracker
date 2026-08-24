@@ -19,6 +19,7 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import { formatSleepWindow, qualityLabel, sleepDeficitTip } from "@/lib/sleep";
 import { todayISODate } from "@/lib/tdee";
+import { useLiftsQuery } from "@/lib/use-lifts-query";
 
 type ProfilePayload = {
   userId?: string;
@@ -96,13 +97,7 @@ export function TodayDashboard() {
     },
   });
 
-  const liftsQuery = useQuery({
-    queryKey: queryKeys.lifts(today),
-    queryFn: () =>
-      apiFetch<LiftsPayload>(
-        `/api/lifts?date=${encodeURIComponent(today)}`,
-      ),
-  });
+  const liftsQuery = useLiftsQuery<LiftsPayload>(today);
 
   const sleepQuery = useQuery({
     queryKey: queryKeys.sleep(today),

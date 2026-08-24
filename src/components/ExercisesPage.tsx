@@ -31,6 +31,7 @@ import type { HeatMode, MuscleHeatRow } from "@/lib/muscle-tonnage";
 import { invalidateAfterLifts } from "@/lib/query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { todayISODate } from "@/lib/tdee";
+import { useLiftsQuery } from "@/lib/use-lifts-query";
 import {
   readUserStorageItem,
   writeUserStorageItem,
@@ -176,13 +177,7 @@ export function ExercisesPage() {
     writeUserStorageItem(HEAT_MODE_KEY, userId, mode);
   }
 
-  const liftsQuery = useQuery({
-    queryKey: queryKeys.lifts(date),
-    queryFn: () =>
-      apiFetch<LiftsPayload>(
-        `/api/lifts?date=${encodeURIComponent(date)}`,
-      ),
-  });
+  const liftsQuery = useLiftsQuery<LiftsPayload>(date);
 
   const lifts = liftsQuery.data;
   const sessions = lifts?.sessions ?? [];
