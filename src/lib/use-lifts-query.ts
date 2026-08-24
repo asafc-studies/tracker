@@ -18,9 +18,7 @@ type ProfileWithUser = { userId?: string };
  * Day lifts with localStorage hydrate (last 14 days) + background refetch.
  * Edits still go through the API; cache updates after each successful fetch.
  */
-export function useLiftsQuery<T extends LiftsLocalPayload = LiftsLocalPayload>(
-  date: string,
-) {
+export function useLiftsQuery(date: string) {
   const queryClient = useQueryClient();
 
   const profileQuery = useQuery({
@@ -29,32 +27,23 @@ export function useLiftsQuery<T extends LiftsLocalPayload = LiftsLocalPayload>(
   });
   const userId = profileQuery.data?.userId;
 
+  const uid =
+    userId ??
+    (
+      queryClient.getQueryData(queryKeys.profile) as ProfileWithUser | undefined
+    )?.userId;
+  const placeholder = readLiftsLocal(uid, date) ?? undefined;
+
   const liftsQuery = useQuery({
     queryKey: queryKeys.lifts(date),
     queryFn: async () => {
-      const data = await apiFetch<T>(
+      const data = await apiFetch<LiftsLocalPayload>(
         `/api/lifts?date=${encodeURIComponent(date)}`,
       );
-      const uid =
-        userId ??
-        (
-          queryClient.getQueryData(queryKeys.profile) as
-            | ProfileWithUser
-            | undefined
-        )?.userId;
       writeLiftsLocal(uid, date, data);
       return data;
     },
-    placeholderData: () => {
-      const uid =
-        userId ??
-        (
-          queryClient.getQueryData(queryKeys.profile) as
-            | ProfileWithUser
-            | undefined
-        )?.userId;
-      return (readLiftsLocal(uid, date) as T | null) ?? undefined;
-    },
+    placeholderData: placeholder,
   });
 
   useEffect(() => {

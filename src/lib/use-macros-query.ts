@@ -43,7 +43,7 @@ export function useMacrosQuery(date: string) {
       writeMacrosLocal(uid, date, data);
       return data;
     },
-    placeholderData: () => {
+    placeholderData: (() => {
       const uid =
         userId ??
         (
@@ -52,7 +52,7 @@ export function useMacrosQuery(date: string) {
             | undefined
         )?.userId;
       return readMacrosLocal(uid, date) ?? undefined;
-    },
+    })(),
   });
 
   // Fill gaps in the 2-week local window (skip days already cached).

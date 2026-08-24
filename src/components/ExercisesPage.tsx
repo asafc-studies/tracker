@@ -177,9 +177,9 @@ export function ExercisesPage() {
     writeUserStorageItem(HEAT_MODE_KEY, userId, mode);
   }
 
-  const liftsQuery = useLiftsQuery<LiftsPayload>(date);
+  const liftsQuery = useLiftsQuery(date);
 
-  const lifts = liftsQuery.data;
+  const lifts = liftsQuery.data as LiftsPayload | undefined;
   const sessions = lifts?.sessions ?? [];
   const inProgressSession = lifts?.inProgressSession ?? null;
   const lastByLift = lifts?.lastByLift ?? {};

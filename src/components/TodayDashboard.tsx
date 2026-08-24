@@ -97,7 +97,7 @@ export function TodayDashboard() {
     },
   });
 
-  const liftsQuery = useLiftsQuery<LiftsPayload>(today);
+  const liftsQuery = useLiftsQuery(today);
 
   const sleepQuery = useQuery({
     queryKey: queryKeys.sleep(today),
@@ -120,7 +120,7 @@ export function TodayDashboard() {
     sleepQuery.isLoading;
   const profile = profileQuery.data ?? null;
   const macros = macrosQuery.data ?? null;
-  const lifts = liftsQuery.data ?? null;
+  const lifts = (liftsQuery.data as LiftsPayload | undefined) ?? null;
   const sleep = sleepQuery.data?.row ?? null;
 
   const protein = macros?.totals.proteinG ?? 0;
