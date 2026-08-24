@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { REMINDERS_READY_EVENT } from "@/components/ReminderLocalTicker";
 import { apiFetch } from "@/lib/api-fetch";
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -21,6 +22,10 @@ type Status =
   | "local"
   | "push"
   | "denied";
+
+function notifyTicker() {
+  window.dispatchEvent(new Event(REMINDERS_READY_EVENT));
+}
 
 export function ReminderEnableBanner() {
   const [status, setStatus] = useState<Status>("loading");
@@ -85,7 +90,18 @@ export function ReminderEnableBanner() {
         return;
       }
       setStatus("local");
-      // Optional: subscribe to push if server is configured.
+      notifyTicker();
+      try {
+        new Notification("Recomp Tracker", {
+          body: "Reminders are on — you’ll get a ping when due times pass.",
+          tag: "recomp-reminders-test",
+          icon: "/icons/icon-192.png",
+        });
+      } catch {
+        setError(
+          "Permission granted, but this browser blocked the test notification",
+        );
+      }
       if (pushReady) await enablePush(false);
       else await refresh();
     } catch (e) {
@@ -112,6 +128,7 @@ export function ReminderEnableBanner() {
       if (!vapid.publicKey) {
         setError("Push not configured (VAPID keys) — local alerts still work");
         setStatus("local");
+        notifyTicker();
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -131,9 +148,11 @@ export function ReminderEnableBanner() {
         }),
       });
       setStatus("push");
+      notifyTicker();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to enable push");
       setStatus("local");
+      notifyTicker();
     } finally {
       if (fromButton) setBusy(false);
     }
@@ -154,7 +173,9 @@ export function ReminderEnableBanner() {
           await sub.unsubscribe();
         }
       }
-      setStatus(Notification.permission === "granted" ? "local" : "need-permission");
+      setStatus(
+        Notification.permission === "granted" ? "local" : "need-permission",
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to disable");
     } finally {
@@ -179,8 +200,8 @@ export function ReminderEnableBanner() {
         {status === "push"
           ? "Alerts on — in-app at due time + morning push digest when closed."
           : status === "local"
-            ? "In-app alerts on (app must be open). Add VAPID keys for closed-app morning digests."
-            : "Allow notifications so 19:00-style reminders can ping while the app is open."}
+            ? "In-app alerts on. Keep this tab open past the due time (checks about every 15s)."
+            : "Allow notifications so due-time reminders can ping while the app is open."}
       </p>
       {status === "need-permission" ? (
         <button
