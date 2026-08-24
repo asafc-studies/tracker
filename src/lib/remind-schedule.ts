@@ -43,3 +43,82 @@ export function freqAppliesToday(
   }
   return false;
 }
+
+export function hhmmToMinutes(hhmm: string): number | null {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+export type TodayReminderRow = {
+  itemId: string;
+  title: string;
+  listId: string;
+  listName: string;
+  dueTime: string;
+  dueMins: number;
+  checked: boolean;
+  remindFreq: RemindFreq;
+};
+
+export type TodayReminderBuckets = {
+  overdue: TodayReminderRow[];
+  upcoming: TodayReminderRow[];
+  done: TodayReminderRow[];
+};
+
+type ListLike = {
+  id: string;
+  name: string;
+  items: Array<{
+    id: string;
+    title: string;
+    dueTime: string | null;
+    remindFreq?: RemindFreq | string | null;
+    remindWeekday?: number | null;
+    checked: boolean;
+  }>;
+};
+
+/** Split today's scheduled reminders into missed / upcoming / already checked. */
+export function bucketTodayReminders(
+  lists: ListLike[],
+  timeZone = typeof Intl !== "undefined"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : "UTC",
+  at = new Date(),
+): TodayReminderBuckets {
+  const { hhmm, weekday } = zonedParts(timeZone, at);
+  const nowMins = hhmmToMinutes(hhmm) ?? 0;
+  const overdue: TodayReminderRow[] = [];
+  const upcoming: TodayReminderRow[] = [];
+  const done: TodayReminderRow[] = [];
+
+  for (const list of lists) {
+    for (const item of list.items) {
+      const freq = (item.remindFreq ?? "off") as RemindFreq;
+      if (freq === "off" || !item.dueTime) continue;
+      if (!freqAppliesToday(freq, weekday, item.remindWeekday ?? null)) continue;
+      const dueMins = hhmmToMinutes(item.dueTime);
+      if (dueMins == null) continue;
+      const row: TodayReminderRow = {
+        itemId: item.id,
+        title: item.title,
+        listId: list.id,
+        listName: list.name,
+        dueTime: item.dueTime,
+        dueMins,
+        checked: item.checked,
+        remindFreq: freq,
+      };
+      if (item.checked) done.push(row);
+      else if (dueMins <= nowMins) overdue.push(row);
+      else upcoming.push(row);
+    }
+  }
+
+  overdue.sort((a, b) => a.dueMins - b.dueMins);
+  upcoming.sort((a, b) => a.dueMins - b.dueMins);
+  done.sort((a, b) => a.dueMins - b.dueMins);
+  return { overdue, upcoming, done };
+}

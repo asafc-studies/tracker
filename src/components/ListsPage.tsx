@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReminderEnableBanner } from "@/components/ReminderEnableBanner";
-import { ReminderLocalTicker } from "@/components/ReminderLocalTicker";
 import { AppShell } from "@/components/shell/AppShell";
 import { apiFetch } from "@/lib/api-fetch";
 import type {
@@ -247,7 +246,6 @@ export function ListsPage() {
 
   return (
     <AppShell title="Lists">
-      <ReminderLocalTicker />
       <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
@@ -314,7 +312,8 @@ export function ListsPage() {
             <ReminderEnableBanner />
             <p className="text-xs text-[var(--muted)] leading-relaxed">
               Lists and items stay every day. Checks reset each morning. Set a
-              time + reminder (daily / weekdays / weekly) to get notified.
+              time + reminder (daily / weekdays / weekly) to get notified —
+              opening the app also catches anything you already missed today.
             </p>
 
             {listsQuery.isLoading && !listsQuery.data ? (

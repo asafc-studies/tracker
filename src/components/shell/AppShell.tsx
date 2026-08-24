@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ReminderLocalTicker } from "@/components/ReminderLocalTicker";
 import { DesktopNav } from "./DesktopNav";
 import { MobileNav } from "./MobileNav";
 
@@ -11,6 +12,7 @@ export function AppShell({
 }) {
   return (
     <div className="min-h-dvh flex bg-[var(--background)] text-[var(--foreground)] overflow-x-hidden">
+      <ReminderLocalTicker />
       <DesktopNav />
       <div className="flex-1 flex flex-col min-w-0 max-w-full">
         <header className="md:hidden sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--background)]/90 backdrop-blur-md px-4 py-3 flex items-center justify-between gap-3">

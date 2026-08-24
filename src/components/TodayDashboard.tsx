@@ -6,6 +6,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AiCoachPanel } from "@/components/AiCoachPanel";
 import { MacroWarningsBanner } from "@/components/MacroWarningsBanner";
 import { NutritionCoach } from "@/components/NutritionCoach";
+import { TodayRemindersPanel } from "@/components/TodayRemindersPanel";
 import { apiFetch } from "@/lib/api-fetch";
 import { writeMacrosLocal } from "@/lib/macros-local-cache";
 import {
@@ -156,17 +157,20 @@ export function TodayDashboard() {
       {loading ? (
         <p className="text-[var(--muted)] text-sm">Loading…</p>
       ) : !profile?.targets ? (
-        <div className="space-y-4">
-          <p className="text-[var(--muted)]">
-            Set weight, estimated body fat %, and activity to unlock Katch-McArdle
-            targets.
-          </p>
-          <Link
-            href="/calculator"
-            className="inline-flex items-center px-4 py-2.5 rounded-md bg-[var(--accent)] text-[var(--background)] text-sm font-medium min-h-[44px]"
-          >
-            Open Profile / Calculator
-          </Link>
+        <div className="space-y-6">
+          <TodayRemindersPanel />
+          <div className="space-y-4">
+            <p className="text-[var(--muted)]">
+              Set weight, estimated body fat %, and activity to unlock Katch-McArdle
+              targets.
+            </p>
+            <Link
+              href="/calculator"
+              className="inline-flex items-center px-4 py-2.5 rounded-md bg-[var(--accent)] text-[var(--background)] text-sm font-medium min-h-[44px]"
+            >
+              Open Profile / Calculator
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="space-y-8">
@@ -189,6 +193,8 @@ export function TodayDashboard() {
               so tips can tailor to fat loss, recomp, etc.
             </p>
           )}
+
+          <TodayRemindersPanel />
 
           <section className="space-y-3">
             <div className="flex items-end justify-between gap-4">

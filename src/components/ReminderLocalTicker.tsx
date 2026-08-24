@@ -4,12 +4,11 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-fetch";
 import {
-  freqAppliesToday,
+  bucketTodayReminders,
   zonedParts,
 } from "@/lib/remind-schedule";
 import type { ChecklistListView } from "@/lib/checklists";
 import { queryKeys } from "@/lib/query-keys";
-import type { RemindFreq } from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 import { readUserStorageItem, writeUserStorageItem } from "@/lib/user-storage";
 
@@ -18,7 +17,29 @@ type ProfilePayload = { userId?: string };
 
 const DEDUPE_BASE = "checklist-local-remind";
 
-/** In-app Notification fallback while the tab/PWA is open. */
+function markFired(userId: string | undefined, keys: string[]) {
+  if (keys.length === 0) return;
+  const stored = readUserStorageItem(DEDUPE_BASE, userId) ?? "";
+  const set = new Set(stored.split(",").filter(Boolean));
+  for (const k of keys) set.add(k);
+  writeUserStorageItem(DEDUPE_BASE, userId, [...set].join(",").slice(-2000));
+}
+
+function alreadyFired(userId: string | undefined, key: string, mem: Set<string>) {
+  if (mem.has(key)) return true;
+  const stored = readUserStorageItem(DEDUPE_BASE, userId) ?? "";
+  if (stored.split(",").includes(key)) {
+    mem.add(key);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Local notifications while the app is open:
+ * - Retro: anything due earlier today that wasn’t pinged yet
+ * - Live: items as their due time arrives
+ */
 export function ReminderLocalTicker() {
   const fired = useRef(new Set<string>());
 
@@ -46,49 +67,52 @@ export function ReminderLocalTicker() {
     ) {
       return;
     }
-    const lists = listsQuery.data?.lists;
-    if (!lists) return;
 
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const { date, hhmm, weekday } = zonedParts(tz);
-    const [nowH, nowM] = hhmm.split(":").map(Number);
-    const nowMins = nowH * 60 + nowM;
+    function tick() {
+      const lists = listsQuery.data?.lists;
+      if (!lists) return;
 
-    for (const list of lists) {
-      for (const item of list.items) {
-        const freq = (item.remindFreq ?? "off") as RemindFreq;
-        if (freq === "off" || !item.dueTime || item.checked) continue;
-        if (!freqAppliesToday(freq, weekday, item.remindWeekday)) continue;
-        const [h, m] = item.dueTime.split(":").map(Number);
-        const dueMins = h * 60 + m;
-        const delta = nowMins - dueMins;
-        if (delta < 0 || delta > 2) continue;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { date } = zonedParts(tz);
+      const { overdue } = bucketTodayReminders(lists, tz);
 
-        const key = `${item.id}:${date}`;
-        if (fired.current.has(key)) continue;
-        const stored = readUserStorageItem(DEDUPE_BASE, userId);
-        if (stored?.includes(key)) {
-          fired.current.add(key);
-          continue;
-        }
+      const pending = overdue.filter((row) => {
+        const key = `${row.itemId}:${date}`;
+        return !alreadyFired(userId, key, fired.current);
+      });
+      if (pending.length === 0) return;
 
-        fired.current.add(key);
-        writeUserStorageItem(
-          DEDUPE_BASE,
-          userId,
-          `${stored ? `${stored},` : ""}${key}`.slice(-2000),
-        );
-        try {
-          new Notification("Recomp Tracker", {
-            body: `${list.name}: ${item.title}`,
-            tag: `local-${item.id}`,
+      const keys = pending.map((r) => `${r.itemId}:${date}`);
+      for (const k of keys) fired.current.add(k);
+      markFired(userId, keys);
+
+      try {
+        if (pending.length === 1) {
+          const r = pending[0];
+          new Notification("Missed reminder", {
+            body: `${r.dueTime} · ${r.listName}: ${r.title}`,
+            tag: `local-${r.itemId}`,
             icon: "/icons/icon-192.png",
           });
-        } catch {
-          /* ignore */
+        } else {
+          const preview = pending
+            .slice(0, 3)
+            .map((r) => `${r.dueTime} ${r.title}`)
+            .join(" · ");
+          new Notification(`${pending.length} reminders waiting`, {
+            body: preview,
+            tag: `local-retro-${date}`,
+            icon: "/icons/icon-192.png",
+          });
         }
+      } catch {
+        /* ignore */
       }
     }
+
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(id);
   }, [listsQuery.data, userId]);
 
   return null;
