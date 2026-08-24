@@ -123,8 +123,8 @@ export function ReminderEnableBanner() {
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex flex-wrap items-center gap-2">
       <p className="text-xs text-[var(--muted)] flex-1 min-w-[12rem]">
         {status === "on"
-          ? "Push reminders on — you’ll get notified even when the app is closed."
-          : "Turn on push reminders for daily / weekly checklist pings."}
+          ? "Push on — morning digest when the app is closed; exact times ping while it’s open."
+          : "Enable push for a once-daily morning digest. Exact due-times still ping when the app is open."}
       </p>
       {status === "on" ? (
         <button

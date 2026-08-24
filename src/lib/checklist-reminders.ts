@@ -16,19 +16,16 @@ export type DueReminder = {
 export { freqAppliesToday, zonedParts } from "@/lib/remind-schedule";
 
 /**
- * Find unchecked items due in the current minute window for a timezone.
- * Marks lastRemindedDate when `mark` is true (cron path).
+ * All unchecked reminders scheduled for "today" in a timezone (morning digest).
+ * Ignores clock time — Hobby cron only runs once/day.
  */
-export async function findDueReminders(opts: {
+export async function findTodayReminders(opts: {
   timeZone: string;
   userId?: string;
   mark?: boolean;
-  windowMinutes?: number;
 }): Promise<DueReminder[]> {
-  const { timeZone, userId, mark = false, windowMinutes = 2 } = opts;
-  const { date, hhmm, weekday } = zonedParts(timeZone);
-  const [nowH, nowM] = hhmm.split(":").map(Number);
-  const nowMins = nowH * 60 + nowM;
+  const { timeZone, userId, mark = false } = opts;
+  const { date, weekday } = zonedParts(timeZone);
 
   const db = await getDb();
   const lists = userId
@@ -47,12 +44,6 @@ export async function findDueReminders(opts: {
       if (freq === "off" || !item.dueTime) continue;
       if (!freqAppliesToday(freq, weekday, item.remindWeekday)) continue;
       if (item.lastRemindedDate === date) continue;
-
-      const [h, m] = item.dueTime.split(":").map(Number);
-      if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
-      const dueMins = h * 60 + m;
-      const delta = nowMins - dueMins;
-      if (delta < 0 || delta > windowMinutes) continue;
 
       const check = await db.query.checklistChecks.findFirst({
         where: and(
@@ -82,6 +73,7 @@ export async function findDueReminders(opts: {
     }
   }
 
+  due.sort((a, b) => a.dueTime.localeCompare(b.dueTime));
   return due;
 }
 

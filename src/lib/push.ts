@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { findDueReminders } from "@/lib/checklist-reminders";
+import { findTodayReminders } from "@/lib/checklist-reminders";
 
 function vapidConfigured() {
   return Boolean(
@@ -77,6 +77,7 @@ export async function removePushSubscription(
     );
 }
 
+/** Once-daily morning digest (Hobby cron limit). Exact times use in-app ticker. */
 export async function sendChecklistPushReminders() {
   if (!vapidConfigured()) {
     return { sent: 0, skipped: "vapid_missing" as const };
@@ -86,7 +87,6 @@ export async function sendChecklistPushReminders() {
   const subs = await db.query.pushSubscriptions.findMany();
   if (subs.length === 0) return { sent: 0, skipped: "no_subs" as const };
 
-  // Group by user+timezone
   const groups = new Map<string, typeof subs>();
   for (const s of subs) {
     const key = `${s.userId}|${s.timezone}`;
@@ -98,23 +98,27 @@ export async function sendChecklistPushReminders() {
   let sent = 0;
   for (const [key, group] of groups) {
     const [userId, timeZone] = key.split("|");
-    const due = await findDueReminders({
+    const due = await findTodayReminders({
       timeZone,
       userId,
       mark: true,
-      windowMinutes: 5,
     });
     if (due.length === 0) continue;
 
+    const preview = due
+      .slice(0, 3)
+      .map((d) => `${d.dueTime} ${d.title}`)
+      .join(" · ");
+    const more = due.length > 3 ? ` (+${due.length - 3} more)` : "";
     const body =
       due.length === 1
-        ? `${due[0].listName}: ${due[0].title}`
-        : `${due.length} reminders due`;
+        ? `${due[0].listName}: ${due[0].title} at ${due[0].dueTime}`
+        : `Today: ${preview}${more}`;
     const payload = JSON.stringify({
-      title: "Recomp Tracker",
+      title: "Today’s checklist",
       body,
       url: "/lists",
-      tag: `checklist-${due.map((d) => d.itemId).join("-").slice(0, 40)}`,
+      tag: `checklist-digest-${due[0]?.userId ?? "day"}`,
     });
 
     for (const sub of group) {

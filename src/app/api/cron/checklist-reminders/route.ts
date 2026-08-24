@@ -2,7 +2,8 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { sendChecklistPushReminders } from "@/lib/push";
 
 /**
- * Vercel Cron (or manual) entry — send due checklist Web Push reminders.
+ * Vercel Cron (Hobby: once/day) — morning digest of today’s checklist reminders.
+ * Exact due-times fire via in-app Notification ticker when the app is open.
  * Secure with CRON_SECRET: Authorization: Bearer <secret>
  */
 export async function GET(req: Request) {
