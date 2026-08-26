@@ -503,6 +503,7 @@ function ListCard({
   const [nameDraft, setNameDraft] = useState(list.name);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ItemDraft>(EMPTY_DRAFT);
+  const [addingItem, setAddingItem] = useState(false);
 
   const done = list.items.filter((i) => i.checked).length;
 
@@ -708,35 +709,59 @@ function ListCard({
         })}
       </ul>
 
-      <form
-        className="px-4 py-3 border-t border-[var(--border)] space-y-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onAddItem();
-        }}
-      >
-        <input
-          className={field}
-          placeholder="Add item…"
-          value={draft.title}
-          onChange={(e) => onDraftChange({ title: e.target.value })}
-        />
-        <RemindFields
-          dueTime={draft.dueTime}
-          remindFreq={draft.remindFreq}
-          remindWeekday={draft.remindWeekday}
-          onChange={onDraftChange}
-        />
-        <div className="flex justify-end">
+      {addingItem ? (
+        <form
+          className="px-4 py-3 border-t border-[var(--border)] space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAddItem();
+            setAddingItem(false);
+          }}
+        >
+          <input
+            className={field}
+            placeholder="Item title"
+            value={draft.title}
+            autoFocus
+            onChange={(e) => onDraftChange({ title: e.target.value })}
+          />
+          <RemindFields
+            dueTime={draft.dueTime}
+            remindFreq={draft.remindFreq}
+            remindWeekday={draft.remindWeekday}
+            onChange={onDraftChange}
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setAddingItem(false);
+                onDraftChange(EMPTY_DRAFT);
+              }}
+              className="rounded-md border border-[var(--border)] px-3 py-2 text-xs min-h-[40px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!draft.title.trim()}
+              className="rounded-md border border-[var(--border)] px-3 py-2 text-xs hover:border-[var(--accent)] min-h-[40px] disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="px-4 py-2 border-t border-[var(--border)]">
           <button
-            type="submit"
-            disabled={!draft.title.trim()}
-            className="rounded-md border border-[var(--border)] px-3 py-2 text-xs hover:border-[var(--accent)] min-h-[40px] disabled:opacity-40"
+            type="button"
+            onClick={() => setAddingItem(true)}
+            className="w-full rounded-md px-2 py-2 text-sm text-[var(--muted)] hover:text-[var(--accent)] min-h-[44px]"
           >
-            Add
+            + Add item
           </button>
         </div>
-      </form>
+      )}
     </section>
   );
 }
