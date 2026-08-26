@@ -50,6 +50,7 @@ function savedToHistoryResult(
     proteinG: saved.proteinG,
     carbsG: saved.carbsG,
     fatG: saved.fatG,
+    fiberG: saved.fiberG ?? 0,
     calories: saved.calories,
     savedFoodId: saved.id,
     lastLoggedQuantity: lastQty,
@@ -86,6 +87,7 @@ function logToSearchResult(
     proteinG: log.proteinG / lastQty,
     carbsG: log.carbsG / lastQty,
     fatG: log.fatG / lastQty,
+    fiberG: (log.fiberG || 0) / lastQty,
     calories: log.calories / lastQty,
     savedFoodId: log.savedFoodId,
     lastLoggedQuantity: lastQty,
@@ -115,6 +117,7 @@ function toSavedResult(row: typeof schema.savedFoods.$inferSelect): FoodSearchRe
     proteinG: row.proteinG,
     carbsG: row.carbsG,
     fatG: row.fatG,
+    fiberG: row.fiberG ?? 0,
     calories: row.calories,
     savedFoodId: row.id,
   };
@@ -272,6 +275,7 @@ export async function lookupBarcode(
       proteinG: off.proteinG,
       carbsG: off.carbsG,
       fatG: off.fatG,
+      fiberG: off.fiberG ?? 0,
       calories: off.calories,
     })
     .returning();
@@ -318,6 +322,7 @@ export async function cacheOffResult(
       proteinG: food.proteinG,
       carbsG: food.carbsG,
       fatG: food.fatG,
+      fiberG: food.fiberG ?? 0,
       calories: food.calories,
     })
     .returning();
@@ -484,6 +489,7 @@ export async function toggleFoodFavorite(
         proteinG: Math.round((log.proteinG / qty) * 10) / 10,
         carbsG: Math.round((log.carbsG / qty) * 10) / 10,
         fatG: Math.round((log.fatG / qty) * 10) / 10,
+        fiberG: Math.round(((log.fiberG || 0) / qty) * 10) / 10,
         calories: Math.round(log.calories / qty),
         pinned: false,
       })

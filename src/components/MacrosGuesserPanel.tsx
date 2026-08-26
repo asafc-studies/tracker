@@ -13,6 +13,7 @@ type Guess = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   rationale: string;
 };
@@ -52,6 +53,7 @@ export function MacrosGuesserPanel({ date }: Props) {
         proteinG: data.guess.proteinG,
         carbsG: data.guess.carbsG,
         fatG: data.guess.fatG,
+        fiberG: data.guess.fiberG ?? 0,
         calories:
           data.guess.calories ||
           caloriesFromMacros(
@@ -101,6 +103,7 @@ export function MacrosGuesserPanel({ date }: Props) {
           proteinG: round1(guess.proteinG),
           carbsG: round1(guess.carbsG),
           fatG: round1(guess.fatG),
+          fiberG: round1(guess.fiberG || 0),
           calories: Math.round(guess.calories),
           quantity: 1,
           servingLabel: guess.servingLabel,
@@ -174,7 +177,7 @@ export function MacrosGuesserPanel({ date }: Props) {
               onChange={(e) => patchGuess({ servingLabel: e.target.value })}
             />
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <label className="space-y-1 block">
               <span className="text-xs text-[var(--muted)]">P</span>
               <input
@@ -207,6 +210,18 @@ export function MacrosGuesserPanel({ date }: Props) {
                 step="0.1"
                 value={guess.fatG || ""}
                 onChange={(e) => patchGuess({ fatG: Number(e.target.value) })}
+              />
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-xs text-[var(--muted)]">Fi</span>
+              <input
+                className={field}
+                type="number"
+                step="0.1"
+                value={guess.fiberG || ""}
+                onChange={(e) =>
+                  patchGuess({ fiberG: Number(e.target.value) })
+                }
               />
             </label>
           </div>

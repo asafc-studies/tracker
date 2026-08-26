@@ -304,6 +304,12 @@ const INCREMENTAL = [
   )`,
   `CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(userId)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
+  `ALTER TABLE saved_foods ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE food_logs ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE menu_template_items ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE recipes ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE daily_menu_items ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE standing_menu_items ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
 ];
 
 export async function ensureMigrated(client: Client) {

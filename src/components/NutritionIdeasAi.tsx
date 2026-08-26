@@ -28,6 +28,7 @@ type RecipeView = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   ingredients: Ingredient[];
   steps: Step[];
@@ -47,6 +48,7 @@ type IdeaResponse = {
         proteinG: number;
         carbsG: number;
         fatG: number;
+        fiberG?: number;
         calories: number;
       };
       ingredients: Ingredient[];
@@ -56,6 +58,7 @@ type IdeaResponse = {
       proteinG: number;
       carbsG: number;
       fatG: number;
+      fiberG?: number;
       calories: number;
     } | null;
   };
@@ -167,6 +170,7 @@ function RecipeCard({
         proteinG: round1(recipe.proteinG * qtyNum),
         carbsG: round1(recipe.carbsG * qtyNum),
         fatG: round1(recipe.fatG * qtyNum),
+        fiberG: round1((recipe.fiberG ?? 0) * qtyNum),
         calories: Math.round(
           (recipe.calories ||
             caloriesFromMacros(
@@ -198,6 +202,7 @@ function RecipeCard({
           proteinG: scaled.proteinG,
           carbsG: scaled.carbsG,
           fatG: scaled.fatG,
+          fiberG: scaled.fiberG,
           calories: scaled.calories,
           quantity: qtyNum,
           servingLabel: sizeLabel,
@@ -233,6 +238,7 @@ function RecipeCard({
           proteinG: scaled.proteinG,
           carbsG: scaled.carbsG,
           fatG: scaled.fatG,
+          fiberG: scaled.fiberG,
           calories: scaled.calories,
           mealSlot: recipe.mealSlot ?? "snack",
         }),
@@ -265,6 +271,7 @@ function RecipeCard({
           proteinG: recipe.proteinG,
           carbsG: recipe.carbsG,
           fatG: recipe.fatG,
+          fiberG: recipe.fiberG ?? 0,
           calories: recipe.calories,
           ingredients: recipe.ingredients,
           steps: recipe.steps,
@@ -431,6 +438,7 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
   const [proteinG, setProteinG] = useState("");
   const [carbsG, setCarbsG] = useState("");
   const [fatG, setFatG] = useState("");
+  const [fiberG, setFiberG] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -445,6 +453,7 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
     const p = Number(proteinG) || 0;
     const c = Number(carbsG) || 0;
     const f = Number(fatG) || 0;
+    const fi = Number(fiberG) || 0;
     setSaving(true);
     setError("");
     try {
@@ -458,6 +467,7 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
           proteinG: p,
           carbsG: c,
           fatG: f,
+          fiberG: fi,
           calories: caloriesFromMacros(p, c, f),
           ingredients: [],
           steps: [],
@@ -470,6 +480,7 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
       setProteinG("");
       setCarbsG("");
       setFatG("");
+      setFiberG("");
       setOpen(false);
       onCreated();
     } catch (err) {
@@ -544,7 +555,7 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
         Macros below are for one serving (
         {formatServingSize(Number(servingAmount) || 0, servingUnit)})
       </p>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label className="space-y-1 block">
           <span className="text-xs text-[var(--muted)]">P</span>
           <input
@@ -573,6 +584,17 @@ function ManualMealForm({ onCreated }: { onCreated: () => void }) {
             step="0.1"
             value={fatG}
             onChange={(e) => setFatG(e.target.value)}
+          />
+        </label>
+        <label className="space-y-1 block">
+          <span className="text-xs text-[var(--muted)]">Fi</span>
+          <input
+            className={field}
+            type="number"
+            step="0.1"
+            value={fiberG}
+            onChange={(e) => setFiberG(e.target.value)}
+            placeholder="optional"
           />
         </label>
       </div>
@@ -640,6 +662,7 @@ export function NutritionIdeasAi({ date }: { date: string }) {
           proteinG: r.perServing.proteinG,
           carbsG: r.perServing.carbsG,
           fatG: r.perServing.fatG,
+          fiberG: r.perServing.fiberG ?? 0,
           calories: r.perServing.calories,
           ingredients: r.ingredients,
           steps: r.steps,
@@ -687,6 +710,9 @@ export function NutritionIdeasAi({ date }: { date: string }) {
             Remaining: {Math.round(remaining.calories)} kcal ·{" "}
             {round1(remaining.proteinG)}p / {round1(remaining.carbsG)}c /{" "}
             {round1(remaining.fatG)}f
+            {remaining.fiberG != null
+              ? ` / ${round1(remaining.fiberG)}fi`
+              : ""}
           </p>
         ) : null}
         {error ? <p className="text-sm text-[var(--warn)]">{error}</p> : null}

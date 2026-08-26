@@ -17,6 +17,7 @@ type MenuItem = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
   calories: number;
   mealSlot?: string | null;
   checked: boolean;
@@ -28,12 +29,14 @@ type DailyPayload = {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
     calories: number;
   };
   targets: {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
     calorieTarget: number;
   } | null;
 };
@@ -93,6 +96,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
     proteinG: 0,
     carbsG: 0,
     fatG: 0,
+    fiberG: 0,
     calories: 0,
   };
   const targets = dailyQuery.data?.targets ?? null;
@@ -225,6 +229,7 @@ export function MenuDailyPanel({ date }: { date: string }) {
           proteinG: scaled.proteinG,
           carbsG: scaled.carbsG,
           fatG: scaled.fatG,
+          fiberG: scaled.fiberG ?? 0,
           calories: scaled.calories,
           mealSlot: "snack",
           sortOrder: items.length,
@@ -309,6 +314,18 @@ export function MenuDailyPanel({ date }: { date: string }) {
                 unit: "g",
                 warn: fatOver,
               },
+              ...(targets.fiberG
+                ? [
+                    {
+                      key: "fiber",
+                      label: "Fiber",
+                      current: totals.fiberG ?? 0,
+                      target: targets.fiberG,
+                      unit: "g",
+                      warn: false,
+                    },
+                  ]
+                : []),
               {
                 key: "calories",
                 label: "Calories",
@@ -317,7 +334,14 @@ export function MenuDailyPanel({ date }: { date: string }) {
                 unit: " kcal",
                 warn: calOver,
               },
-            ] as const
+            ] as Array<{
+              key: string;
+              label: string;
+              current: number;
+              target: number;
+              unit: string;
+              warn: boolean;
+            }>
           ).map((row) => {
             const distance = remainingLabel(row.current, row.target, row.unit);
             const ratio = progressRatio(row.current, row.target);

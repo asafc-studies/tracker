@@ -2,6 +2,7 @@ export type MacroTotals = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
 };
 
@@ -10,14 +11,15 @@ export const QUICK_ADDS: Array<{
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
 }> = [
-  { name: "Chicken breast 150g", proteinG: 46, carbsG: 0, fatG: 5, calories: 231 },
-  { name: "Greek yogurt 200g", proteinG: 20, carbsG: 8, fatG: 4, calories: 146 },
-  { name: "Eggs ×2", proteinG: 12, carbsG: 1, fatG: 10, calories: 143 },
-  { name: "Whey scoop", proteinG: 24, carbsG: 3, fatG: 1, calories: 120 },
-  { name: "Rice 150g cooked", proteinG: 4, carbsG: 42, fatG: 0, calories: 185 },
-  { name: "Banana", proteinG: 1, carbsG: 27, fatG: 0, calories: 105 },
+  { name: "Chicken breast 150g", proteinG: 46, carbsG: 0, fatG: 5, fiberG: 0, calories: 231 },
+  { name: "Greek yogurt 200g", proteinG: 20, carbsG: 8, fatG: 4, fiberG: 0, calories: 146 },
+  { name: "Eggs ×2", proteinG: 12, carbsG: 1, fatG: 10, fiberG: 0, calories: 143 },
+  { name: "Whey scoop", proteinG: 24, carbsG: 3, fatG: 1, fiberG: 0, calories: 120 },
+  { name: "Rice 150g cooked", proteinG: 4, carbsG: 42, fatG: 0, fiberG: 0.6, calories: 185 },
+  { name: "Banana", proteinG: 1, carbsG: 27, fatG: 0, fiberG: 3.1, calories: 105 },
 ];
 
 export function sumMacros(
@@ -25,17 +27,19 @@ export function sumMacros(
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
     calories: number;
   }>,
 ): MacroTotals {
-  return rows.reduce(
+  return rows.reduce<MacroTotals>(
     (acc, row) => ({
       proteinG: acc.proteinG + (row.proteinG || 0),
       carbsG: acc.carbsG + (row.carbsG || 0),
       fatG: acc.fatG + (row.fatG || 0),
+      fiberG: acc.fiberG + (row.fiberG || 0),
       calories: acc.calories + (row.calories || 0),
     }),
-    { proteinG: 0, carbsG: 0, fatG: 0, calories: 0 },
+    { proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, calories: 0 },
   );
 }
 
@@ -48,6 +52,7 @@ export function scaleMacrosByQuantity(
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
     calories: number;
     quantity?: number | null;
   },
@@ -58,8 +63,9 @@ export function scaleMacrosByQuantity(
   const proteinG = Math.round(row.proteinG * factor * 10) / 10;
   const carbsG = Math.round(row.carbsG * factor * 10) / 10;
   const fatG = Math.round(row.fatG * factor * 10) / 10;
+  const fiberG = Math.round((row.fiberG || 0) * factor * 10) / 10;
   const calories = caloriesFromMacros(proteinG, carbsG, fatG);
-  return { proteinG, carbsG, fatG, calories, quantity: newQuantity };
+  return { proteinG, carbsG, fatG, fiberG, calories, quantity: newQuantity };
 }
 
 export function progressRatio(current: number, target: number) {
@@ -170,22 +176,24 @@ export function proteinBarSegments(
   return out;
 }
 
-/** Compact macros line, e.g. "P 46 · C 0 · F 5 · K 231" */
+/** Compact macros line, e.g. "P 46 · C 0 · F 5 · Fi 3 · K 231" */
 export function formatMacroShort(macros: {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
   calories: number;
 }) {
   const p = Math.round(macros.proteinG * 10) / 10;
   const c = Math.round(macros.carbsG * 10) / 10;
   const f = Math.round(macros.fatG * 10) / 10;
+  const fi = Math.round((macros.fiberG || 0) * 10) / 10;
   const k = Math.round(macros.calories);
-  return `P ${p} · C ${c} · F ${f} · K ${k}`;
+  return `P ${p} · C ${c} · F ${f} · Fi ${fi} · K ${k}`;
 }
 
 
-export type MacroWarningMetric = "fat" | "calories" | "protein" | "carbs";
+export type MacroWarningMetric = "fat" | "calories" | "protein" | "carbs" | "fiber";
 
 /** Visual tone — protein uses bar colors; fat/calories stay warn. */
 export type MacroWarningTone = "warn" | "low" | "soft" | "hard";
@@ -210,6 +218,9 @@ export function getMacroWarnings(
     proteinMaxG?: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
+    fiberMinG?: number;
+    fiberMaxG?: number;
   },
 ): MacroWarning[] {
   const warnings: MacroWarning[] = [];
@@ -226,6 +237,10 @@ export function getMacroWarnings(
   const toMax = Math.round(proteinMax - intake.proteinG);
   const carbShort = Math.round(targets.carbsG - intake.carbsG);
   const dayStarted = intake.calories >= targets.calorieTarget * 0.35;
+  const fiberTarget = targets.fiberG ?? 0;
+  const fiberMin = targets.fiberMinG ?? fiberTarget;
+  const fiberMax = targets.fiberMaxG ?? fiberTarget;
+  const fiberShort = Math.round(fiberTarget - (intake.fiberG || 0));
 
   if (targets.fatG > 0 && fatOver >= 8) {
     warnings.push({
@@ -294,6 +309,20 @@ export function getMacroWarnings(
       tone: "warn",
       title: `Carbs crowded out (−${carbShort}g)`,
       detail: `${Math.round(intake.carbsG)}g / ${targets.carbsG}g. High fat intake left less room for training fuel.`,
+    });
+  }
+
+  if (dayStarted && fiberTarget > 0 && fiberShort > 0) {
+    const rangeLabel =
+      fiberMin === fiberMax
+        ? `${fiberMin}g`
+        : `${fiberMin}–${fiberMax}g`;
+    warnings.push({
+      metric: "fiber",
+      severity: fiberShort >= 15 ? "warn" : "info",
+      tone: "soft",
+      title: `Fiber below target (−${fiberShort}g)`,
+      detail: `${Math.round(intake.fiberG || 0)}g logged vs ${fiberTarget}g floor. Aim for ${rangeLabel} daily — veggies, legumes, and whole grains help.`,
     });
   }
 

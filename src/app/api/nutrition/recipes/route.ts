@@ -26,6 +26,7 @@ function mapRecipe(row: typeof schema.recipes.$inferSelect) {
     proteinG: row.proteinG,
     carbsG: row.carbsG,
     fatG: row.fatG,
+    fiberG: row.fiberG ?? 0,
     calories: row.calories,
     ingredients,
     steps,
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
   const proteinG = Number(body?.proteinG ?? 0);
   const carbsG = Number(body?.carbsG ?? 0);
   const fatG = Number(body?.fatG ?? 0);
+  const fiberG = Number(body?.fiberG ?? 0);
   let calories = Number(body?.calories ?? 0);
   if (!calories) calories = caloriesFromMacros(proteinG, carbsG, fatG);
 
@@ -85,6 +87,7 @@ export async function POST(req: Request) {
       proteinG,
       carbsG,
       fatG,
+      fiberG,
       calories,
       ingredientsJson: JSON.stringify(
         ingredients

@@ -10,6 +10,7 @@ export type StandingMenuItemInput = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
   calories: number;
   mealSlot?: string | null;
   sortOrder?: number;
@@ -24,6 +25,7 @@ export type MenuDayItem = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   mealSlot: "breakfast" | "lunch" | "dinner" | "snack" | null;
   sortOrder: number;
@@ -120,6 +122,7 @@ export async function ensureStandingFromLegacy(userId: string) {
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
       mealSlot: item.mealSlot,
       sortOrder: i,
@@ -151,6 +154,7 @@ export async function replaceStandingMenu(
       proteinG: num(item.proteinG),
       carbsG: num(item.carbsG),
       fatG: num(item.fatG),
+      fiberG: num(item.fiberG),
       calories: num(item.calories),
       mealSlot: normalizeMealSlot(item.mealSlot),
       sortOrder: item.sortOrder ?? i,
@@ -191,6 +195,7 @@ export async function getMenuForDate(
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
       mealSlot: item.mealSlot,
       sortOrder: item.sortOrder,
@@ -219,6 +224,7 @@ export async function addStandingItem(
       proteinG: num(item.proteinG),
       carbsG: num(item.carbsG),
       fatG: num(item.fatG),
+      fiberG: num(item.fiberG),
       calories: num(item.calories),
       mealSlot: normalizeMealSlot(item.mealSlot),
       sortOrder: num(item.sortOrder, existing.length),
@@ -340,6 +346,7 @@ export async function toggleStandingCheck(
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
     })
     .returning();

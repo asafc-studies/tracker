@@ -13,6 +13,7 @@ export type FoodSearchResult = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   savedFoodId?: string | null;
   /** Present on OFF hits when result came from global vs Israel-tagged catalog. */
@@ -33,6 +34,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 6,
     carbsG: 0.3,
     fatG: 4.5,
+    fiberG: 0,
     calories: 63,
   },
   {
@@ -44,6 +46,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 7,
     carbsG: 0.4,
     fatG: 5.3,
+    fiberG: 0,
     calories: 74,
   },
   {
@@ -55,6 +58,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 8,
     carbsG: 0.4,
     fatG: 6,
+    fiberG: 0,
     calories: 84,
   },
   {
@@ -66,6 +70,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 14,
     carbsG: 0.8,
     fatG: 10.6,
+    fiberG: 0,
     calories: 148,
   },
   {
@@ -77,6 +82,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 31,
     carbsG: 0,
     fatG: 3.6,
+    fiberG: 0,
     calories: 165,
   },
   {
@@ -88,6 +94,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 46,
     carbsG: 0,
     fatG: 5.4,
+    fiberG: 0,
     calories: 248,
   },
   {
@@ -99,6 +106,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 4,
     carbsG: 42,
     fatG: 0,
+    fiberG: 0.6,
     calories: 185,
   },
   {
@@ -110,6 +118,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 20,
     carbsG: 8,
     fatG: 10,
+    fiberG: 0,
     calories: 210,
   },
   {
@@ -121,6 +130,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 28,
     carbsG: 10,
     fatG: 12.5,
+    fiberG: 0,
     calories: 290,
   },
   {
@@ -132,6 +142,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 24,
     carbsG: 3,
     fatG: 1,
+    fiberG: 0,
     calories: 120,
   },
   {
@@ -143,6 +154,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 1.3,
     carbsG: 27,
     fatG: 0.4,
+    fiberG: 3.1,
     calories: 105,
   },
   {
@@ -154,6 +166,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 2,
     carbsG: 9,
     fatG: 15,
+    fiberG: 6.7,
     calories: 160,
   },
   {
@@ -165,6 +178,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 8,
     carbsG: 14,
     fatG: 10,
+    fiberG: 6,
     calories: 166,
   },
   {
@@ -176,6 +190,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 4,
     carbsG: 33,
     fatG: 1,
+    fiberG: 1.3,
     calories: 165,
   },
   {
@@ -187,6 +202,7 @@ export const REFERENCE_FOODS: FoodSearchResult[] = [
     proteinG: 22,
     carbsG: 0,
     fatG: 13,
+    fiberG: 0,
     calories: 208,
   },
 ];
@@ -206,6 +222,7 @@ export function scaleFood(
     | "proteinG"
     | "carbsG"
     | "fatG"
+    | "fiberG"
     | "calories"
     | "servingLabel"
     | "servingUnit"
@@ -226,6 +243,7 @@ export function scaleFood(
       proteinG: Math.round(food.proteinG * factor * 10) / 10,
       carbsG: Math.round(food.carbsG * factor * 10) / 10,
       fatG: Math.round(food.fatG * factor * 10) / 10,
+      fiberG: Math.round((food.fiberG || 0) * factor * 10) / 10,
       calories: Math.round(food.calories * factor),
       label: `${Math.round(mlAmount)} ml`,
     };
@@ -245,6 +263,7 @@ export function scaleFood(
     proteinG: Math.round(food.proteinG * q * 10) / 10,
     carbsG: Math.round(food.carbsG * q * 10) / 10,
     fatG: Math.round(food.fatG * q * 10) / 10,
+    fiberG: Math.round((food.fiberG || 0) * q * 10) / 10,
     calories: Math.round(food.calories * q),
     label,
   };

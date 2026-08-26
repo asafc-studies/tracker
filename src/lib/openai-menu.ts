@@ -39,6 +39,7 @@ function parseAiItems(raw: unknown): StandingMenuItemInput[] {
     const proteinG = Number(r.proteinG ?? 0);
     const carbsG = Number(r.carbsG ?? 0);
     const fatG = Number(r.fatG ?? 0);
+    const fiberG = Number(r.fiberG ?? 0);
     let calories = Number(r.calories ?? 0);
     if (!calories) calories = Math.round(proteinG * 4 + carbsG * 4 + fatG * 9);
     const slot = String(r.mealSlot || "snack").toLowerCase();
@@ -49,6 +50,7 @@ function parseAiItems(raw: unknown): StandingMenuItemInput[] {
       proteinG: Number.isFinite(proteinG) ? proteinG : 0,
       carbsG: Number.isFinite(carbsG) ? carbsG : 0,
       fatG: Number.isFinite(fatG) ? fatG : 0,
+      fiberG: Number.isFinite(fiberG) ? fiberG : 0,
       calories: Number.isFinite(calories) ? calories : 0,
       mealSlot: MEAL_SLOTS.has(slot) ? slot : "snack",
       sortOrder: items.length,
@@ -112,6 +114,9 @@ export async function buildMenuImproveContext(userId: string) {
         proteinMaxG: targets.proteinMaxG,
         carbsG: targets.carbsG,
         fatG: targets.fatG,
+        fiberG: targets.fiberG,
+        fiberMinG: targets.fiberMinG,
+        fiberMaxG: targets.fiberMaxG,
       });
       return {
         date,
@@ -122,6 +127,7 @@ export async function buildMenuImproveContext(userId: string) {
           proteinG: f.proteinG,
           carbsG: f.carbsG,
           fatG: f.fatG,
+          fiberG: f.fiberG ?? 0,
           calories: f.calories,
         })),
       };
@@ -138,6 +144,9 @@ export async function buildMenuImproveContext(userId: string) {
     proteinMaxG: targets.proteinMaxG,
     carbsG: targets.carbsG,
     fatG: targets.fatG,
+    fiberG: targets.fiberG,
+    fiberMinG: targets.fiberMinG,
+    fiberMaxG: targets.fiberMaxG,
   });
 
   let standing = await getStandingMenu(userId);
@@ -158,6 +167,7 @@ export async function buildMenuImproveContext(userId: string) {
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
       mealSlot: item.mealSlot,
       sortOrder: item.sortOrder,
@@ -176,6 +186,11 @@ export async function buildMenuImproveContext(userId: string) {
         "Hit proteinMinG (≈1.61 g/kg) first; proteinGoodG–proteinMaxG is the strong zone. proteinG is the planning midpoint (~1.85 g/kg), not a hard ceiling.",
       carbsG: targets.carbsG,
       fatG: targets.fatG,
+      fiberG: targets.fiberG,
+      fiberMinG: targets.fiberMinG,
+      fiberMaxG: targets.fiberMaxG,
+      fiberRangeNote:
+        "fiberG is the daily floor; fiberMinG–fiberMaxG is the recommended range.",
       tdee: targets.tdee,
       deficit: targets.deficit,
     },
@@ -191,6 +206,7 @@ export async function buildMenuImproveContext(userId: string) {
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
       mealSlot: item.mealSlot,
     })),
@@ -209,6 +225,7 @@ export async function improveMenuWithAI(
       proteinG: item.proteinG,
       carbsG: item.carbsG,
       fatG: item.fatG,
+      fiberG: item.fiberG ?? 0,
       calories: item.calories,
     })),
   );
@@ -220,6 +237,7 @@ export async function improveMenuWithAI(
     ),
     carbsG: Math.round(context.targets.carbsG - planTotals.carbsG),
     fatG: Math.round(context.targets.fatG - planTotals.fatG),
+    fiberG: Math.round(context.targets.fiberG - planTotals.fiberG),
     calories: Math.round(context.targets.calorieTarget - planTotals.calories),
   };
 
@@ -229,12 +247,14 @@ Secondary goal: keep the menu recognizable — same meal pattern and mostly fami
 If goalTarget is set (e.g. lose fat / recomp / gain), bias food choices toward that without missing macros.
 
 PROTEIN: evidence range ≈1.61–2.2 g/kg. Clear proteinMinG first; aiming near proteinGoodG–proteinMaxG is fine. Do not treat proteinMaxG as mandatory.
+FIBER: hit fiberG (daily floor); fiberMinG–fiberMaxG is the nice range. Prefer veggies, legumes, whole grains.
 
 PRIORITY ORDER (strict):
 1) Protein at or above proteinMinG (highest priority); prefer near proteinG (~1.85 g/kg plan)
 2) Calories within ±80 kcal of target
 3) Fat within ±5g of target (do not overshoot fat)
 4) Carbs fill remaining calories (within ±20g when possible)
+5) Fiber near fiberG when easy without blowing calories/fat
 
 RULES:
 - Start from currentStandingPlan. Keep meal slots (breakfast/lunch/dinner/snack) when possible.
@@ -242,12 +262,13 @@ RULES:
 - If fat is high: reduce oils/sauces/fatty cuts; replace with leaner protein + carbs.
 - If protein is low: add/increase whey, chicken, turkey, fish, low-fat dairy, egg whites.
 - If carbs are low and fat is fine: add rice, pasta, potato, fruit, oats — not more fat.
+- If fiber is low: add veggies, legumes, whole grains, fruit — not more fat.
 - Do NOT make tiny cosmetic edits. If gaps are large, change portions enough to close them.
 - Keep 4–10 items. Use realistic macro numbers that sum near the targets.
 - Rationale must mention the old vs new totals and the key swaps.
 
 Return ONLY valid JSON (no markdown):
-{"rationale":"2-4 sentences","items":[{"name":"string","mealSlot":"breakfast|lunch|dinner|snack","quantity":1,"proteinG":0,"carbsG":0,"fatG":0,"calories":0}],"projectedTotals":{"proteinG":0,"carbsG":0,"fatG":0,"calories":0}}`;
+{"rationale":"2-4 sentences","items":[{"name":"string","mealSlot":"breakfast|lunch|dinner|snack","quantity":1,"proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0}],"projectedTotals":{"proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0}}`;
 
   const user = JSON.stringify({
     instruction:

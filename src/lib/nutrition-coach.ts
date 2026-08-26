@@ -12,6 +12,9 @@ export type CoachTargets = {
   proteinMaxG?: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
+  fiberMinG?: number;
+  fiberMaxG?: number;
   tdee: number;
   deficit: number;
   bodyFatPercent?: number;
@@ -175,6 +178,17 @@ export function buildNutritionCoach(
     why.push({
       title: "Protein is in the recomp range",
       body: `${Math.round(intake.proteinG)}g clears the ~${proteinFloor}g floor (1.61 g/kg). Stronger zone sits toward ~${targets.proteinGoodG ?? proteinFloor}–${proteinCeil}g.`,
+    });
+  }
+
+  // --- Fiber (soft nudge when day has started) ---
+  const fiberFloor = targets.fiberMinG ?? targets.fiberG ?? 0;
+  const fiberGap = Math.round(fiberFloor - (intake.fiberG || 0));
+  const dayStarted = intake.calories >= targets.calorieTarget * 0.35;
+  if (dayStarted && fiberFloor > 0 && fiberGap > 5) {
+    why.push({
+      title: "Fiber is a bit low",
+      body: `${Math.round(intake.fiberG || 0)}g / ~${fiberFloor}g — veggies, legumes, or whole grains close the gap.`,
     });
   }
 

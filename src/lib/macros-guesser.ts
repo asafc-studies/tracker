@@ -7,6 +7,7 @@ export type MacroGuess = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   rationale: string;
   model: string;
@@ -31,12 +32,13 @@ Rules:
 - Prefer common Israeli / Mediterranean portions when ambiguous (e.g. "big cup of coffee").
 - If they mention swaps ("I changed X with Y", size W), apply those to the estimate.
 - Macros must be internally consistent (calories ≈ P×4 + C×4 + F×9, ±15 kcal OK).
+- fiberG is dietary fiber in grams (0 when none / unknown).
 - servingLabel should describe the assumed amount (e.g. "1 large cup (~300ml)", "1 plate", "150g cooked").
 - name should be short and log-friendly.
 - Be honest in rationale (1–2 sentences) about assumptions.
 
 Return ONLY valid JSON (no markdown):
-{"name":"string","servingLabel":"string","proteinG":0,"carbsG":0,"fatG":0,"calories":0,"rationale":"string"}`;
+{"name":"string","servingLabel":"string","proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0,"rationale":"string"}`;
 
   const { content, model } = await aiChatJson({
     system,
@@ -57,6 +59,7 @@ Return ONLY valid JSON (no markdown):
   const proteinG = num(parsed.proteinG);
   const carbsG = num(parsed.carbsG);
   const fatG = num(parsed.fatG);
+  const fiberG = num(parsed.fiberG);
   let calories = Math.round(num(parsed.calories, 0));
   if (!calories) calories = caloriesFromMacros(proteinG, carbsG, fatG);
 
@@ -66,6 +69,7 @@ Return ONLY valid JSON (no markdown):
     proteinG,
     carbsG,
     fatG,
+    fiberG,
     calories,
     rationale: String(parsed.rationale || "").trim(),
     model,

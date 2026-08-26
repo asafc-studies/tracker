@@ -98,11 +98,13 @@ export function scaleMacros(
   fatG: number,
   calories: number,
   factor: number,
+  fiberG = 0,
 ) {
   return {
     proteinG: Math.round(proteinG * factor * 10) / 10,
     carbsG: Math.round(carbsG * factor * 10) / 10,
     fatG: Math.round(fatG * factor * 10) / 10,
+    fiberG: Math.round(fiberG * factor * 10) / 10,
     calories: Math.round(calories * factor),
   };
 }

@@ -43,10 +43,12 @@ type OffNutriments = {
   proteins_100g?: number;
   carbohydrates_100g?: number;
   fat_100g?: number;
+  fiber_100g?: number;
   "energy-kcal_100g"?: number;
   proteins_serving?: number;
   carbohydrates_serving?: number;
   fat_serving?: number;
+  fiber_serving?: number;
   "energy-kcal_serving"?: number;
 };
 
@@ -126,11 +128,13 @@ function normalizeOffHit(
     n.proteins_serving != null ||
     n.carbohydrates_serving != null ||
     n.fat_serving != null ||
+    n.fiber_serving != null ||
     n["energy-kcal_serving"] != null;
 
   let proteinG: number;
   let carbsG: number;
   let fatG: number;
+  let fiberG: number;
   let calories: number;
   let servingLabel: string;
   let servingGrams: number | null = null;
@@ -141,6 +145,7 @@ function normalizeOffHit(
     proteinG = n.proteins_serving ?? 0;
     carbsG = n.carbohydrates_serving ?? 0;
     fatG = n.fat_serving ?? 0;
+    fiberG = n.fiber_serving ?? 0;
     calories =
       n["energy-kcal_serving"] ??
       Math.round(proteinG * 4 + carbsG * 4 + fatG * 9);
@@ -154,17 +159,26 @@ function normalizeOffHit(
       // Some products report per-100ml in serving fields while size is the full bottle.
       const servingSizeMl = parseVolumeMl(hit.serving_size);
       if (servingSizeMl && servingSizeMl > 100 && servingSizeMl !== volumeMl) {
-        const per100 = scaleMacros(proteinG, carbsG, fatG, calories, 100 / servingSizeMl);
+        const per100 = scaleMacros(
+          proteinG,
+          carbsG,
+          fatG,
+          calories,
+          100 / servingSizeMl,
+          fiberG,
+        );
         const full = scaleMacros(
           per100.proteinG,
           per100.carbsG,
           per100.fatG,
           per100.calories,
           volumeMl / 100,
+          per100.fiberG,
         );
         proteinG = full.proteinG;
         carbsG = full.carbsG;
         fatG = full.fatG;
+        fiberG = full.fiberG;
         calories = full.calories;
       }
     } else {
@@ -182,6 +196,7 @@ function normalizeOffHit(
       proteinG: n.proteins_100g ?? 0,
       carbsG: n.carbohydrates_100g ?? 0,
       fatG: n.fat_100g ?? 0,
+      fiberG: n.fiber_100g ?? 0,
       calories:
         n["energy-kcal_100g"] ??
         Math.round(
@@ -196,10 +211,12 @@ function normalizeOffHit(
       per100.fatG,
       per100.calories,
       volumeMl / 100,
+      per100.fiberG,
     );
     proteinG = scaled.proteinG;
     carbsG = scaled.carbsG;
     fatG = scaled.fatG;
+    fiberG = scaled.fiberG;
     calories = scaled.calories;
     servingLabel = `${volumeMl} ml`;
     servingUnit = "ml";
@@ -209,6 +226,7 @@ function normalizeOffHit(
     proteinG = n.proteins_100g ?? 0;
     carbsG = n.carbohydrates_100g ?? 0;
     fatG = n.fat_100g ?? 0;
+    fiberG = n.fiber_100g ?? 0;
     calories =
       n["energy-kcal_100g"] ??
       Math.round(proteinG * 4 + carbsG * 4 + fatG * 9);
@@ -235,6 +253,7 @@ function normalizeOffHit(
     proteinG: Math.round(proteinG * 10) / 10,
     carbsG: Math.round(carbsG * 10) / 10,
     fatG: Math.round(fatG * 10) / 10,
+    fiberG: Math.round(fiberG * 10) / 10,
     calories: Math.round(calories),
     offScope: scope,
     dataSourceLabel: scope === "regional" ? "Open Food Facts · Israel" : "Open Food Facts",

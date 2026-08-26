@@ -37,6 +37,9 @@ type ProfilePayload = {
     proteinMaxG?: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
+    fiberMinG?: number;
+    fiberMaxG?: number;
     tdee: number;
     deficit: number;
     bodyFatPercent?: number;
@@ -51,12 +54,14 @@ type MacrosPayload = {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
     calories: number;
   }>;
   totals: {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
     calories: number;
   };
 };
@@ -90,8 +95,14 @@ export function TodayDashboard() {
         )?.userId;
       if (userId && data.foods) {
         writeMacrosLocal(userId, today, {
-          foods: data.foods,
-          totals: data.totals,
+          foods: data.foods.map((f) => ({
+            ...f,
+            fiberG: f.fiberG ?? 0,
+          })),
+          totals: {
+            ...data.totals,
+            fiberG: data.totals.fiberG ?? 0,
+          },
         });
       }
       return data;
@@ -366,10 +377,16 @@ export function TodayDashboard() {
                   proteinMaxG: profile.targets.proteinMaxG,
                   carbsG: profile.targets.carbsG,
                   fatG: profile.targets.fatG,
+                  fiberG: profile.targets.fiberG,
+                  fiberMinG: profile.targets.fiberMinG,
+                  fiberMaxG: profile.targets.fiberMaxG,
                 })}
               />
               <NutritionCoach
-                intake={macros.totals}
+                intake={{
+                  ...macros.totals,
+                  fiberG: macros.totals.fiberG ?? 0,
+                }}
                 targets={{
                   calorieTarget: profile.targets.calorieTarget,
                   proteinG: profile.targets.proteinG,
@@ -378,6 +395,9 @@ export function TodayDashboard() {
                   proteinMaxG: profile.targets.proteinMaxG,
                   carbsG: profile.targets.carbsG,
                   fatG: profile.targets.fatG,
+                  fiberG: profile.targets.fiberG,
+                  fiberMinG: profile.targets.fiberMinG,
+                  fiberMaxG: profile.targets.fiberMaxG,
                   tdee: profile.targets.tdee,
                   deficit: profile.targets.deficit,
                   bodyFatPercent:

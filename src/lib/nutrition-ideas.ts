@@ -27,6 +27,7 @@ export type IdeaRecipe = {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
     calories: number;
   };
   ingredients: RecipeIngredient[];
@@ -41,6 +42,7 @@ export type NutritionIdeaResult = {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
     calories: number;
   } | null;
   model: string;
@@ -124,6 +126,7 @@ export async function buildNutritionIdeaContext(
     proteinG: Math.round((targets.proteinG - intake.proteinG) * 10) / 10,
     carbsG: Math.round((targets.carbsG - intake.carbsG) * 10) / 10,
     fatG: Math.round((targets.fatG - intake.fatG) * 10) / 10,
+    fiberG: Math.round((targets.fiberG - (intake.fiberG || 0)) * 10) / 10,
     calories: Math.round(targets.calorieTarget - intake.calories),
   };
 
@@ -135,6 +138,9 @@ export async function buildNutritionIdeaContext(
       proteinG: targets.proteinG,
       carbsG: targets.carbsG,
       fatG: targets.fatG,
+      fiberG: targets.fiberG,
+      fiberMinG: targets.fiberMinG,
+      fiberMaxG: targets.fiberMaxG,
     },
     intake,
     remaining,
@@ -143,6 +149,7 @@ export async function buildNutritionIdeaContext(
       proteinG: f.proteinG,
       carbsG: f.carbsG,
       fatG: f.fatG,
+      fiberG: f.fiberG ?? 0,
       calories: f.calories,
     })),
   };
@@ -169,6 +176,7 @@ Choose "tip" for quick advice, swaps, shopping hints, or when remaining macros a
 Rules:
 - Prefer Israeli / Mediterranean foods when ambiguous.
 - Per-serving macros must be consistent (calories ≈ P×4 + C×4 + F×9, ±20 kcal OK).
+- Include fiberG (dietary fiber grams) per serving; 0 when none.
 - Prefer hitting remaining protein; do not wildly overshoot remaining calories.
 - Ingredients need amounts (e.g. "150g", "1 tbsp").
 - Steps should be clear cook stages (prep → cook → finish).
@@ -178,7 +186,7 @@ Rules:
 - perServing macros are for that exact servingAmount.
 
 Return ONLY valid JSON (no markdown):
-{"kind":"tip"|"recipe","text":"string","recipe":null|{"name":"string","servings":1,"servingAmount":350,"servingUnit":"g","mealSlot":"lunch","perServing":{"proteinG":0,"carbsG":0,"fatG":0,"calories":0},"ingredients":[{"name":"string","amount":"string"}],"steps":[{"text":"string"}]}}`;
+{"kind":"tip"|"recipe","text":"string","recipe":null|{"name":"string","servings":1,"servingAmount":350,"servingUnit":"g","mealSlot":"lunch","perServing":{"proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0},"ingredients":[{"name":"string","amount":"string"}],"steps":[{"text":"string"}]}}`;
 
   const { content, model } = await aiChatJson({
     system,
@@ -221,6 +229,7 @@ Return ONLY valid JSON (no markdown):
     const proteinG = num(per.proteinG);
     const carbsG = num(per.carbsG);
     const fatG = num(per.fatG);
+    const fiberG = num(per.fiberG);
     let calories = Math.round(num(per.calories, 0));
     if (!calories) calories = caloriesFromMacros(proteinG, carbsG, fatG);
     const slot = String(r.mealSlot || "snack").toLowerCase();
@@ -236,7 +245,7 @@ Return ONLY valid JSON (no markdown):
       mealSlot: MEAL_SLOTS.has(slot)
         ? (slot as IdeaRecipe["mealSlot"])
         : "snack",
-      perServing: { proteinG, carbsG, fatG, calories },
+      perServing: { proteinG, carbsG, fatG, fiberG, calories },
       ingredients,
       steps,
     };

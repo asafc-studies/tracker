@@ -68,6 +68,8 @@ export async function GET(req: Request) {
       servingProteinG: saved?.proteinG ?? Math.round((f.proteinG / q) * 10) / 10,
       servingCarbsG: saved?.carbsG ?? Math.round((f.carbsG / q) * 10) / 10,
       servingFatG: saved?.fatG ?? Math.round((f.fatG / q) * 10) / 10,
+      servingFiberG:
+        saved?.fiberG ?? Math.round(((f.fiberG || 0) / q) * 10) / 10,
       favorited:
         Boolean(saved?.pinned) ||
         (f.savedFoodId != null && pinnedIds.has(f.savedFoodId)) ||
@@ -87,6 +89,7 @@ export async function POST(req: Request) {
   const proteinG = Number(body.proteinG ?? 0);
   const carbsG = Number(body.carbsG ?? 0);
   const fatG = Number(body.fatG ?? 0);
+  const fiberG = Number(body.fiberG ?? 0);
   let calories = Number(body.calories ?? 0);
   const date = String(body.date || todayISODate());
   const brand = body.brand
@@ -97,16 +100,23 @@ export async function POST(req: Request) {
 
   if (!name) return jsonError("Name is required");
   if (!isISODate(date)) return jsonError("Invalid date");
-  if (!Number.isFinite(proteinG) || !Number.isFinite(carbsG) || !Number.isFinite(fatG)) {
+  if (
+    !Number.isFinite(proteinG) ||
+    !Number.isFinite(carbsG) ||
+    !Number.isFinite(fatG) ||
+    !Number.isFinite(fiberG)
+  ) {
     return jsonError("Invalid macros");
   }
   if (
     proteinG < 0 ||
     carbsG < 0 ||
     fatG < 0 ||
+    fiberG < 0 ||
     proteinG > 10_000 ||
     carbsG > 10_000 ||
-    fatG > 10_000
+    fatG > 10_000 ||
+    fiberG > 10_000
   ) {
     return jsonError("Invalid macros");
   }
@@ -127,6 +137,7 @@ export async function POST(req: Request) {
       proteinG: Number(body.baseProteinG ?? proteinG / (quantity || 1)),
       carbsG: Number(body.baseCarbsG ?? carbsG / (quantity || 1)),
       fatG: Number(body.baseFatG ?? fatG / (quantity || 1)),
+      fiberG: Number(body.baseFiberG ?? fiberG / (quantity || 1)),
       calories: Number(body.baseCalories ?? calories / (quantity || 1)),
     });
     if (cached) savedFoodId = cached;
@@ -157,6 +168,7 @@ export async function POST(req: Request) {
           proteinG: Math.round((proteinG / qty) * 10) / 10,
           carbsG: Math.round((carbsG / qty) * 10) / 10,
           fatG: Math.round((fatG / qty) * 10) / 10,
+          fiberG: Math.round((fiberG / qty) * 10) / 10,
           calories: Math.round(calories / qty),
         })
         .returning();
@@ -176,6 +188,7 @@ export async function POST(req: Request) {
       proteinG,
       carbsG,
       fatG,
+      fiberG,
       calories,
     })
     .returning();
@@ -202,7 +215,10 @@ export async function PATCH(req: Request) {
   if (!row) return jsonError("Not found", 404);
 
   const hasMacros =
-    body.proteinG != null || body.carbsG != null || body.fatG != null;
+    body.proteinG != null ||
+    body.carbsG != null ||
+    body.fatG != null ||
+    body.fiberG != null;
   const hasQuantity = body.quantity != null;
   const hasName = body.name != null;
 
@@ -215,6 +231,7 @@ export async function PATCH(req: Request) {
     proteinG?: number;
     carbsG?: number;
     fatG?: number;
+    fiberG?: number;
     calories?: number;
     quantity?: number;
   } = {};
@@ -229,16 +246,19 @@ export async function PATCH(req: Request) {
     const proteinG = Number(body.proteinG ?? row.proteinG);
     const carbsG = Number(body.carbsG ?? row.carbsG);
     const fatG = Number(body.fatG ?? row.fatG);
+    const fiberG = Number(body.fiberG ?? row.fiberG ?? 0);
     if (
       !Number.isFinite(proteinG) ||
       !Number.isFinite(carbsG) ||
-      !Number.isFinite(fatG)
+      !Number.isFinite(fatG) ||
+      !Number.isFinite(fiberG)
     ) {
       return jsonError("Invalid macros");
     }
     patch.proteinG = proteinG;
     patch.carbsG = carbsG;
     patch.fatG = fatG;
+    patch.fiberG = fiberG;
     patch.calories = caloriesFromMacros(proteinG, carbsG, fatG);
     if (hasQuantity) {
       const quantity = Number(body.quantity);
@@ -265,9 +285,11 @@ export async function PATCH(req: Request) {
         const proteinG = Math.round(saved.proteinG * quantity * 10) / 10;
         const carbsG = Math.round(saved.carbsG * quantity * 10) / 10;
         const fatG = Math.round(saved.fatG * quantity * 10) / 10;
+        const fiberG = Math.round((saved.fiberG ?? 0) * quantity * 10) / 10;
         patch.proteinG = proteinG;
         patch.carbsG = carbsG;
         patch.fatG = fatG;
+        patch.fiberG = fiberG;
         patch.calories = caloriesFromMacros(proteinG, carbsG, fatG);
         patch.quantity = quantity;
       } else {
@@ -283,7 +305,10 @@ export async function PATCH(req: Request) {
     body.syncServing === true &&
     hasMacros &&
     row.savedFoodId &&
-    (patch.proteinG != null || patch.carbsG != null || patch.fatG != null)
+    (patch.proteinG != null ||
+      patch.carbsG != null ||
+      patch.fatG != null ||
+      patch.fiberG != null)
   ) {
     const saved = await db.query.savedFoods.findFirst({
       where: and(
@@ -299,6 +324,7 @@ export async function PATCH(req: Request) {
       const p = patch.proteinG ?? row.proteinG;
       const c = patch.carbsG ?? row.carbsG;
       const f = patch.fatG ?? row.fatG;
+      const fi = patch.fiberG ?? row.fiberG ?? 0;
       const cal = patch.calories ?? row.calories;
       await db
         .update(schema.savedFoods)
@@ -307,6 +333,7 @@ export async function PATCH(req: Request) {
           proteinG: Math.round((p / qty) * 10) / 10,
           carbsG: Math.round((c / qty) * 10) / 10,
           fatG: Math.round((f / qty) * 10) / 10,
+          fiberG: Math.round((fi / qty) * 10) / 10,
           calories: Math.round(cal / qty),
         })
         .where(eq(schema.savedFoods.id, saved.id));

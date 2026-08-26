@@ -26,6 +26,9 @@ type Targets = {
   proteinMaxG?: number;
   carbsG: number;
   fatG: number;
+  fiberG?: number;
+  fiberMinG?: number;
+  fiberMaxG?: number;
   leanBodyMassKg?: number;
   bodyFatPercent?: number;
 };
@@ -279,6 +282,16 @@ export function CalculatorPage() {
                 ]
               : []),
             ["Carbs / Fat", `${targets.carbsG}g / ${targets.fatG}g`],
+            ...(targets.fiberG != null
+              ? [
+                  [
+                    "Fiber",
+                    targets.fiberMinG != null && targets.fiberMaxG != null
+                      ? `${targets.fiberMinG}–${targets.fiberMaxG} g`
+                      : `${targets.fiberG} g`,
+                  ] as [string, string],
+                ]
+              : []),
           ].map(([label, value]) => (
             <div
               key={label}

@@ -147,6 +147,7 @@ export const savedFoods = sqliteTable("saved_foods", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
@@ -171,6 +172,7 @@ export const foodLogs = sqliteTable("food_logs", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .notNull()
@@ -207,6 +209,7 @@ export const menuTemplateItems = sqliteTable("menu_template_items", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   mealSlot: text("mealSlot", {
     enum: ["breakfast", "lunch", "dinner", "snack"],
@@ -235,6 +238,7 @@ export const recipes = sqliteTable("recipes", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   /** JSON: [{ name, amount }] */
   ingredientsJson: text("ingredientsJson").notNull().default("[]"),
@@ -288,6 +292,7 @@ export const dailyMenuItems = sqliteTable("daily_menu_items", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   mealSlot: text("mealSlot", {
     enum: ["breakfast", "lunch", "dinner", "snack"],
@@ -322,6 +327,7 @@ export const standingMenuItems = sqliteTable("standing_menu_items", {
   proteinG: real("proteinG").notNull().default(0),
   carbsG: real("carbsG").notNull().default(0),
   fatG: real("fatG").notNull().default(0),
+  fiberG: real("fiberG").notNull().default(0),
   calories: real("calories").notNull().default(0),
   mealSlot: text("mealSlot", {
     enum: ["breakfast", "lunch", "dinner", "snack"],

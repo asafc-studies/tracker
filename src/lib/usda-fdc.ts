@@ -37,6 +37,7 @@ export function normalizeFdcFood(food: FdcSearchFood): FoodSearchResult | null {
   const proteinG = nutrientValue(nutrients, 1003);
   const fatG = nutrientValue(nutrients, 1004);
   const carbsG = nutrientValue(nutrients, 1005);
+  const fiberG = nutrientValue(nutrients, 1079);
   let calories = nutrientValue(nutrients, 1008);
   if (!calories) {
     calories = Math.round(proteinG * 4 + carbsG * 4 + fatG * 9);
@@ -66,6 +67,7 @@ export function normalizeFdcFood(food: FdcSearchFood): FoodSearchResult | null {
     proteinG: Math.round(proteinG * 10) / 10,
     carbsG: Math.round(carbsG * 10) / 10,
     fatG: Math.round(fatG * 10) / 10,
+    fiberG: Math.round(fiberG * 10) / 10,
     calories: Math.round(calories),
     offScope: undefined,
     dataSourceLabel: `USDA · ${dataLabel}`,
@@ -99,6 +101,56 @@ export async function searchFdcProducts(
       .slice(0, limit);
   } catch {
     return [];
+  }
+}
+
+/** Fetch a single FDC food by id (for backfill). */
+export async function fetchFdcById(
+  fdcId: string | number,
+): Promise<FoodSearchResult | null> {
+  const id = String(fdcId).trim();
+  if (!/^\d+$/.test(id)) return null;
+  try {
+    const res = await fetch(
+      `${FDC_BASE}/food/${id}?api_key=${encodeURIComponent(fdcApiKey())}`,
+      {
+        headers: { "User-Agent": "RecompTracker/1.0 (recomp-tracker@local)" },
+        next: { revalidate: 86400 },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      description?: string;
+      brandOwner?: string;
+      brandName?: string;
+      dataType?: string;
+      foodCategory?: string;
+      foodNutrients?: Array<{
+        nutrientId?: number;
+        nutrientName?: string;
+        unitName?: string;
+        value?: number;
+        nutrient?: { id?: number };
+      }>;
+    };
+    // Detail endpoint nests nutrient id under nutrient.id sometimes.
+    const nutrients: FdcNutrient[] = (data.foodNutrients ?? []).map((n) => ({
+      nutrientId: n.nutrientId ?? n.nutrient?.id,
+      nutrientName: n.nutrientName,
+      unitName: n.unitName,
+      value: n.value,
+    }));
+    return normalizeFdcFood({
+      fdcId: Number(id),
+      description: data.description,
+      brandOwner: data.brandOwner,
+      brandName: data.brandName,
+      dataType: data.dataType,
+      foodCategory: data.foodCategory,
+      foodNutrients: nutrients,
+    });
+  } catch {
+    return null;
   }
 }
 

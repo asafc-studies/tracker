@@ -51,6 +51,7 @@ export async function POST(req: Request) {
             proteinG?: number;
             carbsG?: number;
             fatG?: number;
+            fiberG?: number;
             calories?: number;
             mealSlot?: string;
           },
@@ -64,6 +65,7 @@ export async function POST(req: Request) {
           proteinG: Number(item.proteinG ?? 0),
           carbsG: Number(item.carbsG ?? 0),
           fatG: Number(item.fatG ?? 0),
+          fiberG: Number(item.fiberG ?? 0),
           calories: Number(item.calories ?? 0),
           mealSlot: item.mealSlot ?? "snack",
           sortOrder: i,
@@ -121,6 +123,7 @@ export async function PUT(req: Request) {
               proteinG?: number;
               carbsG?: number;
               fatG?: number;
+              fiberG?: number;
               calories?: number;
               mealSlot?: string;
             },
@@ -134,6 +137,7 @@ export async function PUT(req: Request) {
             proteinG: Number(item.proteinG ?? 0),
             carbsG: Number(item.carbsG ?? 0),
             fatG: Number(item.fatG ?? 0),
+            fiberG: Number(item.fiberG ?? 0),
             calories: Number(item.calories ?? 0),
             mealSlot: item.mealSlot ?? "snack",
             sortOrder: i,

@@ -263,6 +263,7 @@ async function buildTodayContext(userId: string) {
         proteinG: Math.round(totals.proteinG),
         carbsG: Math.round(totals.carbsG),
         fatG: Math.round(totals.fatG),
+        fiberG: Math.round(totals.fiberG || 0),
         dayNotFinished: isCurrentDay,
         intakePartial: partial,
         pctTarget:
@@ -343,6 +344,12 @@ async function buildTodayContext(userId: string) {
       },
       carbsG: targets.carbsG,
       fatG: targets.fatG,
+      fiberG: targets.fiberG,
+      fiberRange: {
+        minG: targets.fiberMinG,
+        maxG: targets.fiberMaxG,
+        note: "Sex-based fiber floor/range (e.g. ~25–35g female, ~35–45g male). Soft adherence tip — not a hard daily requirement.",
+      },
       tdee: targets.tdee,
       deficit: targets.deficit,
     },
@@ -361,6 +368,7 @@ async function buildTodayContext(userId: string) {
         proteinG: Math.round(todayTotals.proteinG),
         carbsG: Math.round(todayTotals.carbsG),
         fatG: Math.round(todayTotals.fatG),
+        fiberG: Math.round(todayTotals.fiberG || 0),
       },
       foodCount: todayFoods.length,
       sessions: recentWorkouts.filter((w) => w.date === today),
@@ -708,6 +716,7 @@ ${JSON_SHAPE}
 Blend nutrition adherence, workout consistency, weight trend, sleep (if present), and goalTarget.
 EEE is insight-only, not added to the calorie target.
 Protein uses an evidence range (macroTargets.proteinRange): floor ≈1.61 g/kg, strong zone ≈1.85–2.2 g/kg. Judge under-eating vs the floor, not the ceiling; food logs may look "low" vs maxG while still being in range.
+Fiber (macroTargets.fiberRange) is a soft daily range by sex — nudge gently if well below minG; do not treat it as critical vs protein/calories.
 If today.dayNotFinished or intakePartial (or recentNutrition.intakePartial), do not call low calories a severe deficit — the day may be unfinished.
 If lastNightSleep.belowSeven or quality is low, mention recovery/appetite briefly.
 Be specific and concise; no medical claims.

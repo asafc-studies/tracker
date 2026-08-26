@@ -41,6 +41,13 @@ export const PROTEIN_PER_KG_MAX = 2.2;
 export const DEFAULT_PROTEIN_PER_KG = PROTEIN_PER_KG_GOOD;
 export const FAT_CALORIE_FRACTION = 0.25;
 
+/** Daily fiber targets (g) — lower bound for tracking; range for coaching copy. */
+export function fiberTargetsFromSex(sex: Sex | null | undefined) {
+  if (sex === "male") return { fiberG: 35, fiberMinG: 35, fiberMaxG: 45 };
+  if (sex === "female") return { fiberG: 25, fiberMinG: 25, fiberMaxG: 35 };
+  return { fiberG: 30, fiberMinG: 25, fiberMaxG: 45 };
+}
+
 export function proteinRangeFromWeight(weightKg: number) {
   return {
     minG: Math.round(weightKg * PROTEIN_PER_KG_MIN),
@@ -94,6 +101,7 @@ export function calcTargets(input: {
   activityLevel: ActivityLevel;
   deficitKcal?: number;
   proteinPerKg?: number;
+  sex?: Sex | null;
 }) {
   const lbm = leanBodyMassKg(input.weightKg, input.bodyFatPercent);
   const bmr = bmrKatchMcArdle(lbm);
@@ -112,6 +120,7 @@ export function calcTargets(input: {
 
   const carbKcal = Math.max(0, calorieTarget - proteinKcal - fatG * 9);
   const carbsG = Math.round(carbKcal / 4);
+  const fiber = fiberTargetsFromSex(input.sex);
 
   return {
     leanBodyMassKg: Math.round(lbm * 10) / 10,
@@ -126,6 +135,7 @@ export function calcTargets(input: {
     proteinMaxG: range.maxG,
     carbsG,
     fatG,
+    ...fiber,
     proteinPerKg,
   };
 }
@@ -170,8 +180,10 @@ export function resolveTargets(profile: ProfileForTargets) {
     deficitKcal: profile.deficitKcal ?? DEFAULT_DEFICIT_KCAL,
     /** Always plan inside the evidence range; ignore legacy 2.2 stores. */
     proteinPerKg: DEFAULT_PROTEIN_PER_KG,
+    sex: profile.sex,
   });
   const range = proteinRangeFromWeight(profile.weightKg);
+  const fiber = fiberTargetsFromSex(profile.sex);
 
   const calorieTarget =
     profile.calorieTargetOverride ?? computed.calorieTarget;
@@ -188,6 +200,7 @@ export function resolveTargets(profile: ProfileForTargets) {
     proteinG,
     carbsG,
     fatG,
+    ...fiber,
     proteinMinG: range.minG,
     proteinGoodG: range.goodG,
     proteinMaxG: range.maxG,

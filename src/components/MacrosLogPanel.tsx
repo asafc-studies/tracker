@@ -28,11 +28,13 @@ type Food = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   servingLabel?: string;
   servingProteinG?: number;
   servingCarbsG?: number;
   servingFatG?: number;
+  servingFiberG?: number;
   favorited?: boolean;
 };
 
@@ -49,6 +51,9 @@ type ProfilePayload = {
     calorieTarget: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
+    fiberMinG?: number;
+    fiberMaxG?: number;
     tdee: number;
     deficit: number;
     bodyFatPercent?: number;
@@ -72,6 +77,7 @@ export function MacrosLogPanel({ date }: Props) {
   const [proteinG, setProteinG] = useState(0);
   const [carbsG, setCarbsG] = useState(0);
   const [fatG, setFatG] = useState(0);
+  const [fiberG, setFiberG] = useState(0);
   const [autoFillHint, setAutoFillHint] = useState("");
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -81,6 +87,7 @@ export function MacrosLogPanel({ date }: Props) {
   const [editProtein, setEditProtein] = useState(0);
   const [editCarbs, setEditCarbs] = useState(0);
   const [editFat, setEditFat] = useState(0);
+  const [editFiber, setEditFiber] = useState(0);
   const [macrosTouched, setMacrosTouched] = useState(false);
   const [savingFoodId, setSavingFoodId] = useState<string | null>(null);
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -103,6 +110,7 @@ export function MacrosLogPanel({ date }: Props) {
     proteinG: 0,
     carbsG: 0,
     fatG: 0,
+    fiberG: 0,
     calories: 0,
   };
   const targets = profileQuery.data?.targets ?? null;
@@ -121,6 +129,9 @@ export function MacrosLogPanel({ date }: Props) {
           proteinMaxG: proteinMax,
           carbsG: targets.carbsG,
           fatG: targets.fatG,
+          fiberG: targets.fiberG,
+          fiberMinG: targets.fiberMinG,
+          fiberMaxG: targets.fiberMaxG,
         })
       : [];
   const fatWarned = warnings.some((w) => w.metric === "fat");
@@ -151,6 +162,7 @@ export function MacrosLogPanel({ date }: Props) {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG?: number;
     calories?: number;
     brand?: string | null;
     savedFoodId?: string | null;
@@ -164,6 +176,7 @@ export function MacrosLogPanel({ date }: Props) {
     baseProteinG?: number;
     baseCarbsG?: number;
     baseFatG?: number;
+    baseFiberG?: number;
     baseCalories?: number;
     foodId?: string;
     date?: string;
@@ -198,6 +211,7 @@ export function MacrosLogPanel({ date }: Props) {
     setEditProtein(round1(food.proteinG / q));
     setEditCarbs(round1(food.carbsG / q));
     setEditFat(round1(food.fatG / q));
+    setEditFiber(round1((food.fiberG ?? 0) / q));
     setMacrosTouched(false);
   }
 
@@ -223,6 +237,7 @@ export function MacrosLogPanel({ date }: Props) {
           proteinG: round1(editProtein * quantity),
           carbsG: round1(editCarbs * quantity),
           fatG: round1(editFat * quantity),
+          fiberG: round1(editFiber * quantity),
           syncServing: macrosTouched,
         }),
       });
@@ -243,6 +258,7 @@ export function MacrosLogPanel({ date }: Props) {
         proteinG: food.proteinG,
         carbsG: food.carbsG,
         fatG: food.fatG,
+        fiberG: food.fiberG ?? 0,
         calories: food.calories,
         quantity: food.quantity ?? 1,
         savedFoodId: food.savedFoodId,
@@ -267,6 +283,7 @@ export function MacrosLogPanel({ date }: Props) {
           proteinG: food.proteinG,
           carbsG: food.carbsG,
           fatG: food.fatG,
+          fiberG: food.fiberG ?? 0,
           calories: food.calories,
           quantity: food.quantity ?? 1,
           savedFoodId: food.savedFoodId,
@@ -325,6 +342,7 @@ export function MacrosLogPanel({ date }: Props) {
       proteinG: scaled.proteinG,
       carbsG: scaled.carbsG,
       fatG: scaled.fatG,
+      fiberG: scaled.fiberG ?? 0,
       calories: scaled.calories,
       quantity: mlAmount != null && food.servingUnit === "ml" ? quantity : quantity,
       savedFoodId: food.savedFoodId,
@@ -340,6 +358,7 @@ export function MacrosLogPanel({ date }: Props) {
       baseProteinG: food.proteinG,
       baseCarbsG: food.carbsG,
       baseFatG: food.fatG,
+      baseFiberG: food.fiberG ?? 0,
       baseCalories: food.calories,
       foodId: food.id,
     });
@@ -363,6 +382,7 @@ export function MacrosLogPanel({ date }: Props) {
             setProteinG(pick.proteinG);
             setCarbsG(pick.carbsG);
             setFatG(pick.fatG);
+            setFiberG(pick.fiberG ?? 0);
             setAutoFillHint(`Auto-filled from ${pick.source}`);
           } else {
             setAutoFillHint("");
@@ -531,6 +551,32 @@ export function MacrosLogPanel({ date }: Props) {
                   </div>
                 </div>
               ) : null}
+              {targets?.fiberG ? (
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">Fiber</span>
+                    <span className="text-[var(--muted)]">
+                      {Math.round(totals.fiberG ?? 0)}/{targets.fiberG}g
+                      {(() => {
+                        const rem = remainingLabel(
+                          totals.fiberG ?? 0,
+                          targets.fiberG,
+                          "g",
+                        );
+                        return rem ? ` · ${rem}` : "";
+                      })()}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                    <div
+                      className="h-full transition-all duration-500 bg-[var(--accent)]/50"
+                      style={{
+                        width: `${Math.min(100, progressRatio(totals.fiberG ?? 0, targets.fiberG) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </>
         ) : (
@@ -558,6 +604,12 @@ export function MacrosLogPanel({ date }: Props) {
             {targets ? ` / ${targets.fatG}g` : ""}
             {fatWarned ? " over" : ""}
           </span>
+          {" · "}
+          Fiber{" "}
+          <span>
+            {Math.round(totals.fiberG ?? 0)}g
+            {targets?.fiberG ? ` / ${targets.fiberG}g` : ""}
+          </span>
         </p>
       </section>
 
@@ -577,12 +629,20 @@ export function MacrosLogPanel({ date }: Props) {
             className="space-y-3 max-w-md"
             onSubmit={(e) => {
               e.preventDefault();
-              void addFood({ name, proteinG, carbsG, fatG, quantity: 1 }).then(
+              void addFood({
+                name,
+                proteinG,
+                carbsG,
+                fatG,
+                fiberG: fiberG || 0,
+                quantity: 1,
+              }).then(
                 () => {
                   setName("");
                   setProteinG(0);
                   setCarbsG(0);
                   setFatG(0);
+                  setFiberG(0);
                   setShowManual(false);
                   setAutoFillHint("");
                 },
@@ -606,7 +666,7 @@ export function MacrosLogPanel({ date }: Props) {
             {autoFillHint ? (
               <p className="text-xs text-[var(--accent)]">{autoFillHint}</p>
             ) : null}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <input
                 className={field}
                 type="number"
@@ -630,6 +690,14 @@ export function MacrosLogPanel({ date }: Props) {
                 placeholder="F"
                 value={fatG || ""}
                 onChange={(e) => setFatG(Number(e.target.value))}
+              />
+              <input
+                className={field}
+                type="number"
+                step="0.1"
+                placeholder="Fi"
+                value={fiberG || ""}
+                onChange={(e) => setFiberG(Number(e.target.value))}
               />
             </div>
             <button
@@ -710,7 +778,7 @@ export function MacrosLogPanel({ date }: Props) {
                       <p className="text-xs text-[var(--muted)]">
                         Macros per {editServingLabel}
                       </p>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <label className="space-y-1 block">
                           <span className="text-xs text-[var(--muted)]">P</span>
                           <input
@@ -750,6 +818,19 @@ export function MacrosLogPanel({ date }: Props) {
                             }}
                           />
                         </label>
+                        <label className="space-y-1 block">
+                          <span className="text-xs text-[var(--muted)]">Fi</span>
+                          <input
+                            className={field}
+                            type="number"
+                            step="0.1"
+                            value={editFiber || ""}
+                            onChange={(e) => {
+                              setMacrosTouched(true);
+                              setEditFiber(Number(e.target.value));
+                            }}
+                          />
+                        </label>
                       </div>
                       <label className="space-y-1 block">
                         <span className="text-xs text-[var(--muted)]">
@@ -771,6 +852,7 @@ export function MacrosLogPanel({ date }: Props) {
                         const p = round1(editProtein * qty);
                         const c = round1(editCarbs * qty);
                         const fat = round1(editFat * qty);
+                        const fi = round1(editFiber * qty);
                         return (
                           <p className="text-xs text-[var(--muted)]">
                             This log:{" "}
@@ -778,6 +860,7 @@ export function MacrosLogPanel({ date }: Props) {
                               proteinG: p,
                               carbsG: c,
                               fatG: fat,
+                              fiberG: fi,
                               calories: Math.round(p * 4 + c * 4 + fat * 9),
                             })}
                           </p>

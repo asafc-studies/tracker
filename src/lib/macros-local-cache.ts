@@ -7,7 +7,7 @@ import { todayISODate } from "@/lib/tdee";
 
 /** Keep two weeks of nutrition logs warm in localStorage for instant UI. */
 export const MACROS_CACHE_WINDOW_DAYS = 14;
-const STORAGE_BASE = "macros-local-v1";
+const STORAGE_BASE = "macros-local-v2";
 
 export type MacrosLocalFood = {
   id: string;
@@ -18,11 +18,13 @@ export type MacrosLocalFood = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  fiberG: number;
   calories: number;
   servingLabel?: string;
   servingProteinG?: number;
   servingCarbsG?: number;
   servingFatG?: number;
+  servingFiberG?: number;
   favorited?: boolean;
 };
 
@@ -32,6 +34,7 @@ export type MacrosLocalPayload = {
     proteinG: number;
     carbsG: number;
     fatG: number;
+    fiberG: number;
     calories: number;
   };
 };

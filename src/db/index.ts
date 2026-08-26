@@ -11,6 +11,7 @@ const globalForDb = globalThis as unknown as {
   __recompClient?: Client;
   __recompDb?: Db;
   __recompMigrated?: Promise<void>;
+  __recompFiberBackfill?: Promise<void>;
 };
 
 export function resolveDbUrl() {
@@ -78,7 +79,15 @@ export async function getDb() {
     })();
   }
   await globalForDb.__recompMigrated;
-  return getDbSync();
+  const db = getDbSync();
+  if (!globalForDb.__recompFiberBackfill) {
+    globalForDb.__recompFiberBackfill = import("@/lib/backfill-fiber")
+      .then(({ backfillFiberOnce }) => backfillFiberOnce(client, db))
+      .catch((err) => {
+        console.error("[fiber-backfill]", err);
+      });
+  }
+  return db;
 }
 
 export { schema };
