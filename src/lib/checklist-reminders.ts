@@ -1,6 +1,10 @@
 import { and, eq, ne } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { freqAppliesToday, zonedParts } from "@/lib/remind-schedule";
+import {
+  freqAppliesToday,
+  hhmmToMinutes,
+  zonedParts,
+} from "@/lib/remind-schedule";
 import type { RemindFreq } from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 
@@ -15,17 +19,32 @@ export type DueReminder = {
 
 export { freqAppliesToday, zonedParts } from "@/lib/remind-schedule";
 
+function remindStamp(date: string, dueTime: string) {
+  return `${date}@${dueTime}`;
+}
+
 /**
- * All unchecked reminders scheduled for "today" in a timezone (morning digest).
- * Ignores clock time — Hobby cron only runs once/day.
+ * Find unchecked reminders for a timezone.
+ * - window: due in the last `windowMinutes` (for frequent external cron → Android push)
+ * - digest: anything already due today (morning catch-up)
  */
-export async function findTodayReminders(opts: {
+export async function findDueReminders(opts: {
   timeZone: string;
   userId?: string;
+  mode?: "window" | "digest";
+  /** Only used for mode=window (default 15). */
+  windowMinutes?: number;
   mark?: boolean;
 }): Promise<DueReminder[]> {
-  const { timeZone, userId, mark = false } = opts;
-  const { date, weekday } = zonedParts(timeZone);
+  const {
+    timeZone,
+    userId,
+    mode = "window",
+    windowMinutes = 15,
+    mark = false,
+  } = opts;
+  const { date, weekday, hhmm } = zonedParts(timeZone);
+  const nowMins = hhmmToMinutes(hhmm) ?? 0;
 
   const db = await getDb();
   const lists = userId
@@ -40,10 +59,27 @@ export async function findTodayReminders(opts: {
   const due: DueReminder[] = [];
   for (const list of lists) {
     for (const item of list.items) {
-      const freq = (item.remindFreq ?? "off") as RemindFreq;
-      if (freq === "off" || !item.dueTime) continue;
+      const raw = (item.remindFreq ?? "off") as RemindFreq;
+      if (!item.dueTime) continue;
+      const freq: RemindFreq = raw === "off" ? "daily" : raw;
       if (!freqAppliesToday(freq, weekday, item.remindWeekday)) continue;
-      if (item.lastRemindedDate === date) continue;
+
+      const dueMins = hhmmToMinutes(item.dueTime);
+      if (dueMins == null) continue;
+      if (dueMins > nowMins) continue; // not yet due
+
+      if (mode === "window") {
+        if (nowMins - dueMins > windowMinutes) continue;
+      }
+
+      const stamp = remindStamp(date, item.dueTime);
+      // Accept legacy YYYY-MM-DD stamps as already-sent for that calendar day.
+      if (
+        item.lastRemindedDate === stamp ||
+        item.lastRemindedDate === date
+      ) {
+        continue;
+      }
 
       const check = await db.query.checklistChecks.findFirst({
         where: and(
@@ -67,7 +103,7 @@ export async function findTodayReminders(opts: {
       if (mark) {
         await db
           .update(schema.checklistItems)
-          .set({ lastRemindedDate: date })
+          .set({ lastRemindedDate: stamp })
           .where(eq(schema.checklistItems.id, item.id));
       }
     }
@@ -75,6 +111,15 @@ export async function findTodayReminders(opts: {
 
   due.sort((a, b) => a.dueTime.localeCompare(b.dueTime));
   return due;
+}
+
+/** @deprecated use findDueReminders({ mode: "digest" }) */
+export async function findTodayReminders(opts: {
+  timeZone: string;
+  userId?: string;
+  mark?: boolean;
+}): Promise<DueReminder[]> {
+  return findDueReminders({ ...opts, mode: "digest" });
 }
 
 export async function markRemindedToday(

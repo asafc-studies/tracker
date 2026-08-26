@@ -27,14 +27,16 @@ export const MAX_BRAND_LEN = 120;
 export const MAX_LIST_NAME_LEN = 80;
 export const MAX_ITEM_TITLE_LEN = 200;
 
-/** Optional HH:MM (24h). Empty/null → null. */
+/** Optional HH:MM (24h). Accepts HH:MM:SS from some browsers’ time inputs. Empty/null → null. */
 export function parseOptionalHHMM(value: unknown): string | null {
   if (value == null || value === "") return null;
   const s = String(value).trim();
-  if (!/^\d{1,2}:\d{2}$/.test(s)) return null;
-  const [h, m] = s.split(":").map(Number);
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
 export type RemindFreq = "off" | "daily" | "weekdays" | "weekly";

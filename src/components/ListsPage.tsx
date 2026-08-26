@@ -94,7 +94,14 @@ function RemindFields({
           type="time"
           className={selectClass}
           value={dueTime}
-          onChange={(e) => onChange({ dueTime: e.target.value })}
+          onChange={(e) => {
+            const next = e.target.value;
+            onChange({
+              dueTime: next,
+              // Setting a time implies you want a reminder.
+              ...(remindFreq === "off" && next ? { remindFreq: "daily" } : {}),
+            });
+          }}
         />
       </label>
       <label className="text-xs text-[var(--muted)] flex items-center gap-2">

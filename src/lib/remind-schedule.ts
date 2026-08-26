@@ -10,6 +10,7 @@ export function zonedParts(timeZone: string, at = new Date()) {
     hour: "2-digit",
     minute: "2-digit",
     weekday: "short",
+    hour12: false,
     hourCycle: "h23",
   });
   const parts = Object.fromEntries(
@@ -96,8 +97,10 @@ export function bucketTodayReminders(
 
   for (const list of lists) {
     for (const item of list.items) {
-      const freq = (item.remindFreq ?? "off") as RemindFreq;
-      if (freq === "off" || !item.dueTime) continue;
+      if (!item.dueTime) continue;
+      const raw = (item.remindFreq ?? "off") as RemindFreq;
+      // A due time with Remind=Off still means “ping me today” (local ticker).
+      const freq: RemindFreq = raw === "off" ? "daily" : raw;
       if (!freqAppliesToday(freq, weekday, item.remindWeekday ?? null)) continue;
       const dueMins = hhmmToMinutes(item.dueTime);
       if (dueMins == null) continue;

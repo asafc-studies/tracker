@@ -21,7 +21,8 @@ type Status =
   | "need-permission"
   | "local"
   | "push"
-  | "denied";
+  | "denied"
+  | "need-vapid";
 
 function notifyTicker() {
   window.dispatchEvent(new Event(REMINDERS_READY_EVENT));
@@ -69,8 +70,13 @@ export function ReminderEnableBanner() {
         setStatus(sub ? "push" : "local");
         return;
       } catch {
-        /* fall through to local */
+        /* fall through */
       }
+    }
+
+    if (!vapidOk) {
+      setStatus("need-vapid");
+      return;
     }
     setStatus("local");
   }, []);
@@ -89,21 +95,13 @@ export function ReminderEnableBanner() {
         setError("Notification permission denied");
         return;
       }
-      setStatus("local");
       notifyTicker();
-      try {
-        new Notification("Recomp Tracker", {
-          body: "Reminders are on — you’ll get a ping when due times pass.",
-          tag: "recomp-reminders-test",
-          icon: "/icons/icon-192.png",
-        });
-      } catch {
-        setError(
-          "Permission granted, but this browser blocked the test notification",
-        );
+      if (pushReady) {
+        await enablePush(false);
+      } else {
+        setStatus("need-vapid");
+        await refresh();
       }
-      if (pushReady) await enablePush(false);
-      else await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -126,9 +124,13 @@ export function ReminderEnableBanner() {
       }
       const vapid = await apiFetch<VapidPayload>("/api/push/subscribe");
       if (!vapid.publicKey) {
-        setError("Push not configured (VAPID keys) — local alerts still work");
-        setStatus("local");
+        setError("Push not configured (VAPID keys) — required on Android");
+        setStatus("need-vapid");
         notifyTicker();
+        return;
+      }
+      if (!("serviceWorker" in navigator)) {
+        setError("Service worker missing — open the installed app / production site");
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -149,6 +151,16 @@ export function ReminderEnableBanner() {
       });
       setStatus("push");
       notifyTicker();
+      try {
+        await reg.showNotification("Recomp Tracker", {
+          body: "Android push on — due times can alert even if the app is closed.",
+          tag: "recomp-reminders-test",
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+        });
+      } catch {
+        /* ignore test toast failure */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to enable push");
       setStatus("local");
@@ -174,7 +186,11 @@ export function ReminderEnableBanner() {
         }
       }
       setStatus(
-        Notification.permission === "granted" ? "local" : "need-permission",
+        Notification.permission === "granted"
+          ? pushReady
+            ? "local"
+            : "need-vapid"
+          : "need-permission",
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to disable");
@@ -188,8 +204,8 @@ export function ReminderEnableBanner() {
   if (status === "denied") {
     return (
       <p className="text-xs text-[var(--muted)] rounded-md border border-[var(--border)] px-3 py-2">
-        Notifications are blocked in the browser. Allow them for this site to
-        get in-app reminder pings.
+        Notifications are blocked. On Android: site settings → Notifications →
+        Allow (and disable battery optimization for Chrome / the installed app).
       </p>
     );
   }
@@ -198,10 +214,12 @@ export function ReminderEnableBanner() {
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 flex flex-wrap items-center gap-2">
       <p className="text-xs text-[var(--muted)] flex-1 min-w-[12rem]">
         {status === "push"
-          ? "Alerts on — in-app at due time + morning push digest when closed."
-          : status === "local"
-            ? "In-app alerts on. Keep this tab open past the due time (checks about every 15s)."
-            : "Allow notifications so due-time reminders can ping while the app is open."}
+          ? "Android push on — due-time alerts work with the app closed (needs the 5‑min cron)."
+          : status === "need-vapid"
+            ? "Android needs Web Push. Set VAPID keys on the server, deploy, then enable push here (dev mode has no service worker)."
+            : status === "local"
+              ? "Notifications allowed — tap Enable Android push so alerts work when the app is closed."
+              : "Allow notifications, then enable Android push. In-page timers alone won’t fire after you leave Chrome."}
       </p>
       {status === "need-permission" ? (
         <button
@@ -213,14 +231,14 @@ export function ReminderEnableBanner() {
           Allow notifications
         </button>
       ) : null}
-      {status === "local" && pushReady ? (
+      {status === "local" || status === "need-vapid" ? (
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || (status === "need-vapid" && !pushReady)}
           onClick={() => void enablePush()}
-          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs min-h-[40px] hover:border-[var(--accent)]"
+          className="rounded-md bg-[var(--accent)] text-[var(--background)] px-3 py-1.5 text-xs font-medium min-h-[40px] disabled:opacity-50"
         >
-          Add morning push
+          Enable Android push
         </button>
       ) : null}
       {status === "push" ? (

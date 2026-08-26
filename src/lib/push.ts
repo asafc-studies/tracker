@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { findTodayReminders } from "@/lib/checklist-reminders";
+import { findDueReminders } from "@/lib/checklist-reminders";
 
 function vapidConfigured() {
   return Boolean(
@@ -77,15 +77,30 @@ export async function removePushSubscription(
     );
 }
 
-/** Once-daily morning digest (Hobby cron limit). Exact times use in-app ticker. */
-export async function sendChecklistPushReminders() {
+export type PushRemindMode = "window" | "digest";
+
+/**
+ * Push checklist reminders.
+ * - window (default): items due in the last N minutes — hit every ~5 min from
+ *   an external cron (Vercel Hobby only allows one daily cron).
+ * - digest: everything already due today (morning catch-up).
+ */
+export async function sendChecklistPushReminders(opts?: {
+  mode?: PushRemindMode;
+  windowMinutes?: number;
+}) {
+  const mode = opts?.mode ?? "window";
+  const windowMinutes = opts?.windowMinutes ?? 15;
+
   if (!vapidConfigured()) {
-    return { sent: 0, skipped: "vapid_missing" as const };
+    return { sent: 0, skipped: "vapid_missing" as const, mode };
   }
   ensureVapid();
   const db = await getDb();
   const subs = await db.query.pushSubscriptions.findMany();
-  if (subs.length === 0) return { sent: 0, skipped: "no_subs" as const };
+  if (subs.length === 0) {
+    return { sent: 0, skipped: "no_subs" as const, mode };
+  }
 
   const groups = new Map<string, typeof subs>();
   for (const s of subs) {
@@ -96,54 +111,52 @@ export async function sendChecklistPushReminders() {
   }
 
   let sent = 0;
+  let dueCount = 0;
   for (const [key, group] of groups) {
     const [userId, timeZone] = key.split("|");
-    const due = await findTodayReminders({
+    const due = await findDueReminders({
       timeZone,
       userId,
+      mode,
+      windowMinutes,
       mark: true,
     });
     if (due.length === 0) continue;
+    dueCount += due.length;
 
-    const preview = due
-      .slice(0, 3)
-      .map((d) => `${d.dueTime} ${d.title}`)
-      .join(" · ");
-    const more = due.length > 3 ? ` (+${due.length - 3} more)` : "";
-    const body =
-      due.length === 1
-        ? `${due[0].listName}: ${due[0].title} at ${due[0].dueTime}`
-        : `Today: ${preview}${more}`;
-    const payload = JSON.stringify({
-      title: "Today’s checklist",
-      body,
-      url: "/lists",
-      tag: `checklist-digest-${due[0]?.userId ?? "day"}`,
-    });
+    // One notification per item so Android shows the exact due reminder.
+    for (const d of due) {
+      const payload = JSON.stringify({
+        title: "Checklist reminder",
+        body: `${d.dueTime} · ${d.listName}: ${d.title}`,
+        url: "/lists",
+        tag: `checklist-${d.itemId}-${d.dueTime}`,
+      });
 
-    for (const sub of group) {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth },
-          },
-          payload,
-        );
-        sent += 1;
-      } catch (err: unknown) {
-        const status =
-          err && typeof err === "object" && "statusCode" in err
-            ? Number((err as { statusCode: number }).statusCode)
-            : 0;
-        if (status === 404 || status === 410) {
-          await db
-            .delete(schema.pushSubscriptions)
-            .where(eq(schema.pushSubscriptions.id, sub.id));
+      for (const sub of group) {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
+            },
+            payload,
+          );
+          sent += 1;
+        } catch (err: unknown) {
+          const status =
+            err && typeof err === "object" && "statusCode" in err
+              ? Number((err as { statusCode: number }).statusCode)
+              : 0;
+          if (status === 404 || status === 410) {
+            await db
+              .delete(schema.pushSubscriptions)
+              .where(eq(schema.pushSubscriptions.id, sub.id));
+          }
         }
       }
     }
   }
 
-  return { sent };
+  return { sent, dueCount, mode };
 }
