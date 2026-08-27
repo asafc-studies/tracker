@@ -1,6 +1,11 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import {
+  itemActiveOnDate,
+  skipRemindOnCreateDay,
+  zonedParts,
+} from "@/lib/remind-schedule";
+import {
   clampString,
   isISODate,
   MAX_ITEM_TITLE_LEN,
@@ -22,6 +27,8 @@ export type ChecklistItemView = {
   checked: boolean;
   checkedAt: string | null;
   checkId: string | null;
+  /** ISO timestamp — used to scope items to calendar days. */
+  createdAt: string | null;
 };
 
 export type ChecklistListView = {
@@ -90,7 +97,11 @@ async function assertItemOwned(userId: string, itemId: string) {
   return item;
 }
 
-export async function getChecklistsForDate(userId: string, date: string) {
+export async function getChecklistsForDate(
+  userId: string,
+  date: string,
+  timeZone = "UTC",
+) {
   if (!isISODate(date)) throw new Error("Invalid date");
   const db = await getDb();
 
@@ -107,7 +118,10 @@ export async function getChecklistsForDate(userId: string, date: string) {
     },
   });
 
-  const itemIds = lists.flatMap((l) => l.items.map((i) => i.id));
+  const activeItems = lists.flatMap((l) =>
+    l.items.filter((i) => itemActiveOnDate(i.createdAt, date, timeZone)),
+  );
+  const itemIds = activeItems.map((i) => i.id);
   const checks =
     itemIds.length > 0
       ? await db.query.checklistChecks.findMany({
@@ -124,20 +138,23 @@ export async function getChecklistsForDate(userId: string, date: string) {
     id: list.id,
     name: list.name,
     sortOrder: list.sortOrder,
-    items: list.items.map((item) => {
-      const check = checkByItem.get(item.id);
-      return {
-        id: item.id,
-        title: item.title,
-        dueTime: item.dueTime,
-        remindFreq: parseRemindFreq(item.remindFreq),
-        remindWeekday: item.remindWeekday ?? null,
-        sortOrder: item.sortOrder,
-        checked: Boolean(check),
-        checkedAt: toIso(check?.checkedAt),
-        checkId: check?.id ?? null,
-      };
-    }),
+    items: list.items
+      .filter((item) => itemActiveOnDate(item.createdAt, date, timeZone))
+      .map((item) => {
+        const check = checkByItem.get(item.id);
+        return {
+          id: item.id,
+          title: item.title,
+          dueTime: item.dueTime,
+          remindFreq: parseRemindFreq(item.remindFreq),
+          remindWeekday: item.remindWeekday ?? null,
+          sortOrder: item.sortOrder,
+          checked: Boolean(check),
+          checkedAt: toIso(check?.checkedAt),
+          checkId: check?.id ?? null,
+          createdAt: toIso(item.createdAt),
+        };
+      }),
   }));
 
   return { date, lists: result };
@@ -232,6 +249,8 @@ export async function addItem(
     dueTime?: unknown;
     remindFreq?: unknown;
     remindWeekday?: unknown;
+    /** IANA tz — used to skip same-day remind when due already passed. */
+    timeZone?: unknown;
   },
 ) {
   const list = await assertListOwned(userId, listId);
@@ -258,6 +277,17 @@ export async function addItem(
   });
   const sortOrder = (last[0]?.sortOrder ?? -1) + 1;
 
+  const now = new Date();
+  const tz =
+    typeof opts?.timeZone === "string" && opts.timeZone.trim()
+      ? opts.timeZone.trim()
+      : "UTC";
+  const { date: today } = zonedParts(tz, now);
+  let lastRemindedDate: string | null = null;
+  if (dueTime && skipRemindOnCreateDay(dueTime, now, tz)) {
+    lastRemindedDate = `${today}@${dueTime}`;
+  }
+
   const [row] = await db
     .insert(schema.checklistItems)
     .values({
@@ -267,6 +297,8 @@ export async function addItem(
       remindFreq,
       remindWeekday,
       sortOrder,
+      lastRemindedDate,
+      createdAt: now,
     })
     .returning();
   return row;

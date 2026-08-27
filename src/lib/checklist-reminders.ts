@@ -3,6 +3,8 @@ import { getDb, schema } from "@/db";
 import {
   freqAppliesToday,
   hhmmToMinutes,
+  itemActiveOnDate,
+  skipRemindOnCreateDay,
   zonedParts,
 } from "@/lib/remind-schedule";
 import type { RemindFreq } from "@/lib/security";
@@ -66,6 +68,10 @@ export async function findDueReminders(opts: {
 
       const dueMins = hhmmToMinutes(item.dueTime);
       if (dueMins == null) continue;
+      if (!itemActiveOnDate(item.createdAt, date, timeZone)) continue;
+      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, timeZone)) {
+        continue;
+      }
       if (dueMins > nowMins) continue; // not yet due
 
       if (mode === "window") {

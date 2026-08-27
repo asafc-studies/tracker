@@ -17,6 +17,10 @@ import {
 import type { RemindFreq } from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 
+function clientTz() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
 type ListsPayload = {
   date: string;
   lists: ChecklistListView[];
@@ -154,7 +158,7 @@ export function ListsPage() {
     queryKey: queryKeys.checklists(date),
     queryFn: () =>
       apiFetch<ListsPayload>(
-        `/api/checklists?date=${encodeURIComponent(date)}`,
+        `/api/checklists?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(clientTz())}`,
       ),
   });
 
@@ -189,7 +193,7 @@ export function ListsPage() {
     try {
       await apiFetch("/api/checklists", {
         method: "POST",
-        body: JSON.stringify({ ...body, action }),
+        body: JSON.stringify({ ...body, action, timeZone: clientTz() }),
       });
       await refresh();
     } catch (e) {

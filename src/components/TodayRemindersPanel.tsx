@@ -84,7 +84,7 @@ export function TodayRemindersPanel() {
     queryKey: queryKeys.checklists(today),
     queryFn: () =>
       apiFetch<ListsPayload>(
-        `/api/checklists?date=${encodeURIComponent(today)}`,
+        `/api/checklists?date=${encodeURIComponent(today)}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`,
       ),
     refetchInterval: 60_000,
   });

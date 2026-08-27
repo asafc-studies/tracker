@@ -2,6 +2,10 @@ name: checklist-reminders
 
 # Android exact-time reminders need a push every few minutes.
 # Vercel Hobby only allows one daily cron — this fills the gap.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      — e.g. https://recomp-tracker.vercel.app  (no trailing slash)
+#   CRON_SECRET  — same value as CRON_SECRET in Vercel env
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -17,8 +21,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "Set repo secrets APP_URL (e.g. https://your.app) and CRON_SECRET"
-            exit 1
+            echo "::notice::Skipping — add Actions secrets APP_URL and CRON_SECRET to enable Android due-time push."
+            exit 0
           fi
           curl -fsS -H "Authorization: Bearer $CRON_SECRET" \
             "${APP_URL%/}/api/cron/checklist-reminders?mode=window&window=15"

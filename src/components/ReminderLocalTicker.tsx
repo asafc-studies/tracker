@@ -9,6 +9,7 @@ import { queryKeys } from "@/lib/query-keys";
 import {
   freqAppliesToday,
   hhmmToMinutes,
+  skipRemindOnCreateDay,
   type TodayReminderRow,
 } from "@/lib/remind-schedule";
 import type { RemindFreq } from "@/lib/security";
@@ -21,6 +22,10 @@ type ListsPayload = { lists: ChecklistListView[]; date: string };
 type ProfilePayload = { userId?: string };
 
 const DEDUPE_BASE = "checklist-local-remind-v2";
+
+function clientTz() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
 
 function markFired(userId: string | undefined, keys: string[]) {
   if (keys.length === 0) return;
@@ -109,6 +114,8 @@ function localOverdue(lists: ChecklistListView[]): {
       if (!freqAppliesToday(freq, weekday, item.remindWeekday ?? null)) continue;
       const dueMins = hhmmToMinutes(item.dueTime);
       if (dueMins == null || dueMins > nowMins) continue;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, tz)) continue;
       overdue.push({
         itemId: item.id,
         title: item.title,
@@ -149,7 +156,7 @@ export function ReminderLocalTicker() {
     queryKey: queryKeys.checklists(today),
     queryFn: () =>
       apiFetch<ListsPayload>(
-        `/api/checklists?date=${encodeURIComponent(today)}`,
+        `/api/checklists?date=${encodeURIComponent(today)}&tz=${encodeURIComponent(clientTz())}`,
       ),
     refetchInterval: 10_000,
   });

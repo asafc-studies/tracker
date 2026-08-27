@@ -51,6 +51,40 @@ export function hhmmToMinutes(hhmm: string): number | null {
   return h * 60 + m;
 }
 
+/**
+ * Item was created after its due clock on the same calendar day —
+ * skip reminding that first day (user is prepping for later days).
+ */
+export function skipRemindOnCreateDay(
+  dueTime: string,
+  createdAt: Date | string | number | null | undefined,
+  timeZone: string,
+): boolean {
+  if (createdAt == null) return false;
+  const created =
+    createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return false;
+  const { hhmm } = zonedParts(timeZone, created);
+  const dueMins = hhmmToMinutes(dueTime);
+  const createdMins = hhmmToMinutes(hhmm);
+  if (dueMins == null || createdMins == null) return false;
+  return dueMins <= createdMins;
+}
+
+/** Item exists on viewDate if it was created on or before that calendar day. */
+export function itemActiveOnDate(
+  createdAt: Date | string | number | null | undefined,
+  viewDate: string,
+  timeZone: string,
+): boolean {
+  if (createdAt == null) return true;
+  const created =
+    createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return true;
+  const { date: createdDate } = zonedParts(timeZone, created);
+  return createdDate <= viewDate;
+}
+
 export type TodayReminderRow = {
   itemId: string;
   title: string;
@@ -78,6 +112,7 @@ type ListLike = {
     remindFreq?: RemindFreq | string | null;
     remindWeekday?: number | null;
     checked: boolean;
+    createdAt?: string | null;
   }>;
 };
 
@@ -89,7 +124,7 @@ export function bucketTodayReminders(
     : "UTC",
   at = new Date(),
 ): TodayReminderBuckets {
-  const { hhmm, weekday } = zonedParts(timeZone, at);
+  const { date, hhmm, weekday } = zonedParts(timeZone, at);
   const nowMins = hhmmToMinutes(hhmm) ?? 0;
   const overdue: TodayReminderRow[] = [];
   const upcoming: TodayReminderRow[] = [];
@@ -98,6 +133,10 @@ export function bucketTodayReminders(
   for (const list of lists) {
     for (const item of list.items) {
       if (!item.dueTime) continue;
+      if (!itemActiveOnDate(item.createdAt, date, timeZone)) continue;
+      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, timeZone)) {
+        continue;
+      }
       const raw = (item.remindFreq ?? "off") as RemindFreq;
       // A due time with Remind=Off still means “ping me today” (local ticker).
       const freq: RemindFreq = raw === "off" ? "daily" : raw;

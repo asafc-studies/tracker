@@ -494,7 +494,7 @@ export const checklistItems = sqliteTable("checklist_items", {
     .notNull()
     .default("off"),
   remindWeekday: integer("remindWeekday"),
-  /** YYYY-MM-DD last push/local reminder sent (dedupe). */
+  /** YYYY-MM-DD or YYYY-MM-DD@HH:MM last push/local reminder sent (dedupe). */
   lastRemindedDate: text("lastRemindedDate"),
   sortOrder: integer("sortOrder").notNull().default(0),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })

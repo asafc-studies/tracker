@@ -13,6 +13,11 @@ import {
 import { isISODate } from "@/lib/security";
 import { todayISODate } from "@/lib/tdee";
 
+function clientTimeZone(value: unknown): string {
+  const s = typeof value === "string" ? value.trim() : "";
+  return s || "UTC";
+}
+
 export async function GET(req: Request) {
   const authz = await requireUser();
   if ("error" in authz) return authz.error;
@@ -20,12 +25,13 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const date = searchParams.get("date") || todayISODate();
   if (!isISODate(date)) return jsonError("Invalid date");
+  const timeZone = clientTimeZone(searchParams.get("tz"));
 
   try {
     if (searchParams.get("history") === "1") {
       return jsonOk(await getChecklistHistory(authz.userId, date));
     }
-    return jsonOk(await getChecklistsForDate(authz.userId, date));
+    return jsonOk(await getChecklistsForDate(authz.userId, date, timeZone));
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed", 400);
   }
@@ -74,6 +80,7 @@ export async function POST(req: Request) {
                 dueTime: body.dueTime,
                 remindFreq: body.remindFreq,
                 remindWeekday: body.remindWeekday,
+                timeZone: body.timeZone,
               },
             ),
           },
