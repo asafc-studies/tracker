@@ -273,3 +273,72 @@ export async function aiChatJson(opts: {
     model: `${provider.id}:${provider.model}`,
   };
 }
+
+function resolveMistralVisionModel() {
+  return env("MISTRAL_VISION_MODEL") || "ministral-14b-latest";
+}
+
+/** Mistral vision chat — plain text, always uses MISTRAL_API_KEY. */
+export async function aiChatWithImage(opts: {
+  system: string;
+  user: string;
+  imageBase64: string;
+  mimeType: string;
+  temperature?: number;
+}): Promise<{ content: string; model: string }> {
+  const apiKey = env("MISTRAL_API_KEY");
+  if (!apiKey) {
+    throw new Error(
+      "MISTRAL_API_KEY is missing. Set it in .env.local for photo food guessing.",
+    );
+  }
+
+  const model = resolveMistralVisionModel();
+  const dataUrl = `data:${opts.mimeType};base64,${opts.imageBase64}`;
+
+  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: opts.temperature ?? 0.3,
+      messages: [
+        { role: "system", content: opts.system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: opts.user },
+            { type: "image_url", image_url: dataUrl },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const data = (await res.json()) as {
+    error?: { message?: string; code?: string };
+    message?: string;
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  if (!res.ok) {
+    const apiMsg =
+      data.error?.message || data.message || `Mistral error (${res.status})`;
+    if (res.status === 429 || data.error?.code === "insufficient_quota") {
+      throw new Error(`Mistral quota/rate limit: ${apiMsg}`);
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `Mistral auth failed (${res.status}). Check MISTRAL_API_KEY in .env.local. ${apiMsg}`,
+      );
+    }
+    throw new Error(`Mistral ${res.status}: ${apiMsg}`);
+  }
+
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("Empty response from Mistral vision");
+  return { content, model: `mistral:${model}` };
+}

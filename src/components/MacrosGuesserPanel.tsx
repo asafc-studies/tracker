@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nutritionFieldClass } from "@/components/nutrition-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import { caloriesFromMacros, formatMacroShort } from "@/lib/macros";
 import { invalidateAfterMacros } from "@/lib/query-invalidate";
+import { resizeImageForUpload } from "@/lib/resize-image";
 
 type Guess = {
   name: string;
@@ -29,15 +30,24 @@ function round1(n: number) {
 export function MacrosGuesserPanel({ date }: Props) {
   const queryClient = useQueryClient();
   const field = nutritionFieldClass();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [description, setDescription] = useState("");
+  const [describingPhoto, setDescribingPhoto] = useState(false);
   const [guessing, setGuessing] = useState(false);
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState("");
   const [loggedHint, setLoggedHint] = useState("");
   const [guess, setGuess] = useState<Guess | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
-  async function runGuess() {
-    const text = description.trim();
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
+  async function runGuess(textOverride?: string) {
+    const text = (textOverride ?? description).trim();
     if (text.length < 2) return;
     setGuessing(true);
     setError("");
@@ -68,6 +78,45 @@ export function MacrosGuesserPanel({ date }: Props) {
       setError(err instanceof Error ? err.message : "Guess failed");
     } finally {
       setGuessing(false);
+    }
+  }
+
+  function clearPhotoPreview() {
+    setPhotoPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
+  async function onPhotoSelected(file: File | null) {
+    if (!file || !file.type.startsWith("image/")) return;
+    setError("");
+    setLoggedHint("");
+    setGuess(null);
+    setDescribingPhoto(true);
+    clearPhotoPreview();
+
+    try {
+      const { base64, mimeType, previewUrl } = await resizeImageForUpload(file);
+      setPhotoPreview(previewUrl);
+
+      const data = await apiFetch<{ description: string }>(
+        "/api/macros/describe-image",
+        {
+          method: "POST",
+          body: JSON.stringify({ imageBase64: base64, mimeType }),
+        },
+      );
+
+      const text = data.description.trim();
+      setDescription(text);
+      setDescribingPhoto(false);
+      await runGuess(text);
+    } catch (err) {
+      setDescribingPhoto(false);
+      setError(err instanceof Error ? err.message : "Could not read photo");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -113,6 +162,7 @@ export function MacrosGuesserPanel({ date }: Props) {
       setLoggedHint(`Logged “${guess.name.trim()}”`);
       setGuess(null);
       setDescription("");
+      clearPhotoPreview();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not log food");
     } finally {
@@ -120,18 +170,59 @@ export function MacrosGuesserPanel({ date }: Props) {
     }
   }
 
+  const busy = describingPhoto || guessing;
+  const guessLabel = describingPhoto
+    ? "Reading photo…"
+    : guessing
+      ? "Guessing macros…"
+      : "Guess macros";
+
   return (
     <div className="space-y-6 max-w-lg">
       <section className="space-y-2">
         <h2 className="text-sm text-[var(--muted)]">Macros guesser</h2>
         <p className="text-sm text-[var(--muted)]">
           Describe a recipe, a swap (“changed rice with quinoa, 200g”), or
-          something vague like “big cup of coffee”. AI returns an editable log
-          entry for this date.
+          something vague like “big cup of coffee”. Or add a photo — AI describes
+          it, then guesses an editable log entry for this date.
         </p>
       </section>
 
       <section className="space-y-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={(e) => void onPhotoSelected(e.target.files?.[0] ?? null)}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-md border border-[var(--border)] px-4 py-2.5 text-sm min-h-[44px] disabled:opacity-50"
+          >
+            {describingPhoto ? "Reading photo…" : "Add photo"}
+          </button>
+          {photoPreview ? (
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photoPreview}
+                alt="Selected meal"
+                className="h-11 w-11 rounded-md object-cover border border-[var(--border)]"
+              />
+              <button
+                type="button"
+                onClick={clearPhotoPreview}
+                className="text-xs text-[var(--muted)] underline"
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+        </div>
         <textarea
           className={`${field} min-h-[120px] resize-y`}
           placeholder="e.g. chicken stir-fry, I used olive oil instead of butter, about a big plate…"
@@ -140,17 +231,17 @@ export function MacrosGuesserPanel({ date }: Props) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (!guessing) void runGuess();
+              if (!busy) void runGuess();
             }
           }}
         />
         <button
           type="button"
-          disabled={guessing || description.trim().length < 2}
+          disabled={busy || description.trim().length < 2}
           onClick={() => void runGuess()}
           className="rounded-md bg-[var(--accent)] text-[var(--background)] px-4 py-2.5 text-sm font-medium min-h-[44px] w-full sm:w-auto disabled:opacity-50"
         >
-          {guessing ? "Guessing…" : "Guess macros"}
+          {guessLabel}
         </button>
       </section>
 

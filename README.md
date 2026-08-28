@@ -14,6 +14,7 @@ Protein-first recomp PWA: macros, exercises, calculator, and history charts.
 ```bash
 cp .env.example .env.local
 # fill AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET
+# optional: MISTRAL_API_KEY for AI macro guesser + photo describe
 npm install
 npm run dev
 ```
@@ -98,6 +99,21 @@ Schema migrates automatically on first app request (`ensureMigrated`). Optional:
 | `DATABASE_AUTH_TOKEN` | Turso token |
 | `AUTH_TRUST_HOST` | `true` |
 | `FDC_API_KEY` | optional USDA key |
+| `MISTRAL_API_KEY` | Mistral AI (macros guesser, photo describe, coach, menu) |
+| `MISTRAL_VISION_MODEL` | optional; default `ministral-14b-latest` for photo food describe |
+| `MISTRAL_MODEL` / `AI_PROVIDER` | optional AI provider selection (see `src/lib/ai-client.ts`) |
+
+### AI / photo guesser (optional)
+
+Photo guessing on the **Macros guesser** panel uses Mistral vision (two API calls: describe photo → guess macros). Requires `MISTRAL_API_KEY` on [La Plateforme](https://console.mistral.ai). The free **Experiment** tier includes vision models but is rate-limited (~1 req/sec); personal meal logging is usually fine.
+
+```env
+MISTRAL_API_KEY=your_key
+# optional:
+MISTRAL_VISION_MODEL=ministral-14b-latest
+```
+
+Other AI features (text macro guess, coach, menu improve) use the same key or `GEMINI_API_KEY` / `OPENAI_API_KEY` via `AI_PROVIDER`.
 
 Do **not** set `AUTH_URL` to localhost. Either omit it, or set it to `https://YOUR_PROJECT.vercel.app`.
 
