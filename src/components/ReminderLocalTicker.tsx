@@ -75,7 +75,7 @@ async function showOsNotification(title: string, body: string, tag: string) {
     body,
     tag,
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    badge: "/icons/notification-badge.png",
   };
   try {
     const reg = await navigator.serviceWorker?.ready;

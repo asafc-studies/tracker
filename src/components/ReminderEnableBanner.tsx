@@ -156,7 +156,7 @@ export function ReminderEnableBanner() {
           body: "Android push on — due times can alert even if the app is closed.",
           tag: "recomp-reminders-test",
           icon: "/icons/icon-192.png",
-          badge: "/icons/icon-192.png",
+          badge: "/icons/notification-badge.png",
         });
       } catch {
         /* ignore test toast failure */

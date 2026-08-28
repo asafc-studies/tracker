@@ -14,7 +14,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(title, {
       body: data.body || "Checklist reminder",
       icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
+      badge: "/icons/notification-badge.png",
       tag: data.tag || "checklist-reminder",
       data: { url: data.url || "/lists" },
     }),
