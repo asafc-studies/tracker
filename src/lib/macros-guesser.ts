@@ -42,7 +42,7 @@ Return ONLY valid JSON (no markdown):
 
   const { content, model } = await aiChatJson({
     system,
-    user: JSON.stringify({ description: text }),
+    user: text,
     temperature: 0.3,
   });
 

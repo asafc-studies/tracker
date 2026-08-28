@@ -27,6 +27,10 @@ function round1(n: number) {
   return Math.round(n * 10) / 10;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function MacrosGuesserPanel({ date }: Props) {
   const queryClient = useQueryClient();
   const field = nutritionFieldClass();
@@ -111,6 +115,8 @@ export function MacrosGuesserPanel({ date }: Props) {
       const text = data.description.trim();
       setDescription(text);
       setDescribingPhoto(false);
+      // Mistral free tier ~1 req/sec; avoid back-to-back vision + text calls.
+      await sleep(1200);
       await runGuess(text);
     } catch (err) {
       setDescribingPhoto(false);

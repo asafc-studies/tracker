@@ -24,6 +24,36 @@ function env(...names: string[]) {
   return "";
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readResponseBody(res: Response) {
+  const text = await res.text();
+  if (!text) return { data: null as unknown, text: "" };
+  try {
+    return { data: JSON.parse(text) as unknown, text };
+  } catch {
+    return { data: null, text };
+  }
+}
+
+function apiErrorMessage(
+  data: unknown,
+  text: string,
+  providerLabel: string,
+  status: number,
+) {
+  if (data && typeof data === "object") {
+    const err = data as { error?: { message?: string }; message?: string };
+    if (err.error?.message) return err.error.message;
+    if (err.message) return err.message;
+  }
+  const snippet = text.trim().slice(0, 160);
+  if (snippet) return snippet;
+  return `${providerLabel} error (${status})`;
+}
+
 /** Prefer AI_PROVIDER / AI_MODEL; fall back to AI_MENU_* for existing setups. */
 export function resolveAiProvider(): ResolvedProvider {
   const forcedRaw = env("AI_PROVIDER", "AI_MENU_PROVIDER").toLowerCase();
@@ -127,27 +157,37 @@ async function chatCompletionsOpenAICompatible(opts: {
     body.response_format = { type: "json_object" };
   }
 
-  const res = await fetch(opts.url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-      ...opts.extraHeaders,
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    res = await fetch(opts.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        "Content-Type": "application/json",
+        ...opts.extraHeaders,
+      },
+      body: JSON.stringify(body),
+    });
+    if (
+      attempt === 0 &&
+      (res.status === 429 || res.status === 502 || res.status === 503)
+    ) {
+      await sleep(1500);
+      continue;
+    }
+    break;
+  }
+  if (!res) throw new Error(`${opts.providerLabel} request failed`);
 
-  const data = (await res.json()) as {
+  const { data: raw, text } = await readResponseBody(res);
+  const data = (raw ?? {}) as {
     error?: { message?: string; type?: string; code?: string };
     message?: string;
     choices?: Array<{ message?: { content?: string } }>;
   };
 
   if (!res.ok) {
-    const apiMsg =
-      data.error?.message ||
-      data.message ||
-      `${opts.providerLabel} error (${res.status})`;
+    const apiMsg = apiErrorMessage(raw, text, opts.providerLabel, res.status);
     if (res.status === 429 || data.error?.code === "insufficient_quota") {
       throw new Error(`${opts.providerLabel} quota/rate limit: ${apiMsg}`);
     }
@@ -185,7 +225,8 @@ async function chatCompletionsGemini(opts: {
     }),
   });
 
-  const data = (await res.json()) as {
+  const { data: raw, text } = await readResponseBody(res);
+  const data = (raw ?? {}) as {
     error?: { message?: string; status?: string };
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
@@ -193,7 +234,7 @@ async function chatCompletionsGemini(opts: {
   };
 
   if (!res.ok) {
-    const apiMsg = data.error?.message || `Gemini error (${res.status})`;
+    const apiMsg = apiErrorMessage(raw, text, "Gemini", res.status);
     if (res.status === 429) {
       throw new Error(`Gemini quota/rate limit: ${apiMsg}`);
     }
@@ -296,37 +337,49 @@ export async function aiChatWithImage(opts: {
   const model = resolveMistralVisionModel();
   const dataUrl = `data:${opts.mimeType};base64,${opts.imageBase64}`;
 
-  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: opts.temperature ?? 0.3,
-      messages: [
-        { role: "system", content: opts.system },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: opts.user },
-            { type: "image_url", image_url: dataUrl },
-          ],
-        },
-      ],
-    }),
-  });
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: opts.temperature ?? 0.3,
+        messages: [
+          { role: "system", content: opts.system },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: opts.user },
+              { type: "image_url", image_url: dataUrl },
+            ],
+          },
+        ],
+      }),
+    });
+    if (
+      attempt === 0 &&
+      (res.status === 429 || res.status === 502 || res.status === 503)
+    ) {
+      await sleep(1500);
+      continue;
+    }
+    break;
+  }
+  if (!res) throw new Error("Mistral vision request failed");
 
-  const data = (await res.json()) as {
+  const { data: raw, text } = await readResponseBody(res);
+  const data = (raw ?? {}) as {
     error?: { message?: string; code?: string };
     message?: string;
     choices?: Array<{ message?: { content?: string } }>;
   };
 
   if (!res.ok) {
-    const apiMsg =
-      data.error?.message || data.message || `Mistral error (${res.status})`;
+    const apiMsg = apiErrorMessage(raw, text, "Mistral", res.status);
     if (res.status === 429 || data.error?.code === "insufficient_quota") {
       throw new Error(`Mistral quota/rate limit: ${apiMsg}`);
     }

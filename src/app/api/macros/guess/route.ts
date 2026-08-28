@@ -21,11 +21,15 @@ export async function POST(req: Request) {
     console.error("[macros/guess]", message);
     const status =
       message.includes("No AI key") ||
+      message.includes("MISTRAL_API_KEY") ||
       message.includes("auth failed") ||
       message.includes("401") ||
       message.includes("403")
         ? 503
-        : message.includes("quota") || message.includes("429")
+        : message.includes("quota") ||
+            message.includes("429") ||
+            message.includes("rate limit") ||
+            message.includes("upstream")
           ? 402
           : 400;
     return jsonError(message, status);
