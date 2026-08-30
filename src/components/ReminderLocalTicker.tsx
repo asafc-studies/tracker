@@ -114,8 +114,9 @@ function localOverdue(lists: ChecklistListView[]): {
       if (!freqAppliesToday(freq, weekday, item.remindWeekday ?? null)) continue;
       const dueMins = hhmmToMinutes(item.dueTime);
       if (dueMins == null || dueMins > nowMins) continue;
+      if (item.endedOn) continue;
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, tz)) continue;
+      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, tz, date)) continue;
       overdue.push({
         itemId: item.id,
         title: item.title,

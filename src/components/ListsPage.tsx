@@ -320,9 +320,10 @@ export function ListsPage() {
           <div className="space-y-4">
             <ReminderEnableBanner />
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Lists and items stay every day. Checks reset each morning. Set a
-              time + reminder (daily / weekdays / weekly) to get notified —
-              opening the app also catches anything you already missed today.
+              Lists stay every day. Checks reset each morning. Remove an item to
+              turn it off from today on — it still shows on past days it was
+              active. Set a time + reminder (daily / weekdays / weekly) to get
+              notified.
             </p>
 
             {listsQuery.isLoading && !listsQuery.data ? (
@@ -336,11 +337,14 @@ export function ListsPage() {
               </p>
             ) : null}
 
-            {lists.map((list) => (
+            {lists
+              .filter((list) => date === today || list.items.length > 0)
+              .map((list) => (
               <ListCard
                 key={list.id}
                 list={list}
                 date={date}
+                isPast={date !== today}
                 busy={busy}
                 draft={draftFor(list.id)}
                 onDraftChange={(next) =>
@@ -471,6 +475,7 @@ export function ListsPage() {
 function ListCard({
   list,
   date,
+  isPast,
   busy,
   draft,
   onDraftChange,
@@ -484,6 +489,7 @@ function ListCard({
 }: {
   list: ChecklistListView;
   date: string;
+  isPast: boolean;
   busy: string | null;
   draft: ItemDraft;
   onDraftChange: (next: Partial<ItemDraft>) => void;
@@ -564,7 +570,7 @@ function ListCard({
             }
           }}
           className="text-xs text-[var(--muted)] hover:text-red-400 min-h-[44px] px-2 shrink-0"
-          disabled={busy === "delete_list"}
+          disabled={busy === "delete_list" || isPast}
         >
           Delete
         </button>
@@ -679,32 +685,40 @@ function ListCard({
                     </div>
                   </div>
                   <div className="flex flex-col shrink-0">
-                    <button
-                      type="button"
-                      className="text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px] px-1"
-                      onClick={() => {
-                        setEditingItemId(item.id);
-                        setEditDraft({
-                          title: item.title,
-                          dueTime: item.dueTime ?? "",
-                          remindFreq: item.remindFreq ?? "off",
-                          remindWeekday: String(item.remindWeekday ?? 1),
-                        });
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[11px] text-[var(--muted)] hover:text-red-400 min-h-[36px] px-1"
-                      onClick={() => {
-                        if (confirm("Remove this item from the list?")) {
-                          onDeleteItem(item.id);
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
+                    {isPast ? null : (
+                      <>
+                        <button
+                          type="button"
+                          className="text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] min-h-[36px] px-1"
+                          onClick={() => {
+                            setEditingItemId(item.id);
+                            setEditDraft({
+                              title: item.title,
+                              dueTime: item.dueTime ?? "",
+                              remindFreq: item.remindFreq ?? "off",
+                              remindWeekday: String(item.remindWeekday ?? 1),
+                            });
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="text-[11px] text-[var(--muted)] hover:text-red-400 min-h-[36px] px-1"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Turn off this item from today on? It will still show on past days.",
+                              )
+                            ) {
+                              onDeleteItem(item.id);
+                            }
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -713,7 +727,7 @@ function ListCard({
         })}
       </ul>
 
-      {addingItem ? (
+      {isPast ? null : addingItem ? (
         <form
           className="px-4 py-3 border-t border-[var(--border)] space-y-2"
           onSubmit={(e) => {

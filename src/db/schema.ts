@@ -500,6 +500,8 @@ export const checklistItems = sqliteTable("checklist_items", {
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
+  /** YYYY-MM-DD turned off; hidden from this date onward. */
+  endedOn: text("endedOn"),
 });
 
 /** Browser Web Push subscriptions for checklist reminders. */

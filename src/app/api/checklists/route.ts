@@ -97,7 +97,11 @@ export async function POST(req: Request) {
         });
       case "delete_item":
         return jsonOk(
-          await deleteItem(authz.userId, String(body.itemId ?? "")),
+          await deleteItem(
+            authz.userId,
+            String(body.itemId ?? ""),
+            body.timeZone,
+          ),
         );
       case "set_checked": {
         const date = String(body.date || todayISODate());

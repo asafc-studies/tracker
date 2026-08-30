@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import {
-  itemActiveOnDate,
+  itemVisibleOnDate,
   skipRemindOnCreateDay,
   zonedParts,
 } from "@/lib/remind-schedule";
@@ -29,6 +29,8 @@ export type ChecklistItemView = {
   checkId: string | null;
   /** ISO timestamp — used to scope items to calendar days. */
   createdAt: string | null;
+  /** YYYY-MM-DD turned off; hidden from this date onward. */
+  endedOn: string | null;
 };
 
 export type ChecklistListView = {
@@ -118,9 +120,10 @@ export async function getChecklistsForDate(
     },
   });
 
-  const activeItems = lists.flatMap((l) =>
-    l.items.filter((i) => itemActiveOnDate(i.createdAt, date, timeZone)),
-  );
+  const visible = (item: (typeof lists)[number]["items"][number]) =>
+    itemVisibleOnDate(item.createdAt, item.endedOn, date, timeZone);
+
+  const activeItems = lists.flatMap((l) => l.items.filter(visible));
   const itemIds = activeItems.map((i) => i.id);
   const checks =
     itemIds.length > 0
@@ -138,23 +141,22 @@ export async function getChecklistsForDate(
     id: list.id,
     name: list.name,
     sortOrder: list.sortOrder,
-    items: list.items
-      .filter((item) => itemActiveOnDate(item.createdAt, date, timeZone))
-      .map((item) => {
-        const check = checkByItem.get(item.id);
-        return {
-          id: item.id,
-          title: item.title,
-          dueTime: item.dueTime,
-          remindFreq: parseRemindFreq(item.remindFreq),
-          remindWeekday: item.remindWeekday ?? null,
-          sortOrder: item.sortOrder,
-          checked: Boolean(check),
-          checkedAt: toIso(check?.checkedAt),
-          checkId: check?.id ?? null,
-          createdAt: toIso(item.createdAt),
-        };
-      }),
+    items: list.items.filter(visible).map((item) => {
+      const check = checkByItem.get(item.id);
+      return {
+        id: item.id,
+        title: item.title,
+        dueTime: item.dueTime,
+        remindFreq: parseRemindFreq(item.remindFreq),
+        remindWeekday: item.remindWeekday ?? null,
+        sortOrder: item.sortOrder,
+        checked: Boolean(check),
+        checkedAt: toIso(check?.checkedAt),
+        checkId: check?.id ?? null,
+        createdAt: toIso(item.createdAt),
+        endedOn: item.endedOn ?? null,
+      };
+    }),
   }));
 
   return { date, lists: result };
@@ -364,12 +366,21 @@ export async function updateItem(
   return row;
 }
 
-export async function deleteItem(userId: string, itemId: string) {
+export async function deleteItem(
+  userId: string,
+  itemId: string,
+  timeZone?: unknown,
+) {
   const item = await assertItemOwned(userId, itemId);
   if (!item) throw new Error("Not found");
+  if (item.endedOn) return { ok: true };
+  const tz =
+    typeof timeZone === "string" && timeZone.trim() ? timeZone.trim() : "UTC";
+  const { date } = zonedParts(tz);
   const db = await getDb();
   await db
-    .delete(schema.checklistItems)
+    .update(schema.checklistItems)
+    .set({ endedOn: date })
     .where(eq(schema.checklistItems.id, itemId));
   return { ok: true };
 }

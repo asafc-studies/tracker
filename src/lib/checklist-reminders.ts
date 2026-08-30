@@ -68,8 +68,9 @@ export async function findDueReminders(opts: {
 
       const dueMins = hhmmToMinutes(item.dueTime);
       if (dueMins == null) continue;
+      if (item.endedOn && item.endedOn <= date) continue;
       if (!itemActiveOnDate(item.createdAt, date, timeZone)) continue;
-      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, timeZone)) {
+      if (skipRemindOnCreateDay(item.dueTime, item.createdAt, timeZone, date)) {
         continue;
       }
       if (dueMins > nowMins) continue; // not yet due

@@ -310,6 +310,7 @@ const INCREMENTAL = [
   `ALTER TABLE recipes ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
   `ALTER TABLE daily_menu_items ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
   `ALTER TABLE standing_menu_items ADD COLUMN fiberG REAL NOT NULL DEFAULT 0`,
+  `ALTER TABLE checklist_items ADD COLUMN endedOn TEXT`,
 ];
 
 export async function ensureMigrated(client: Client) {
