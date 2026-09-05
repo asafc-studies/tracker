@@ -18,11 +18,17 @@ function num(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? Math.round(n * 10) / 10 : fallback;
 }
 
+/** Keep prompts small enough that one guess won't spike TPM on low free-tier models. */
+const MAX_GUESS_CHARS = 6_000;
+
 export async function guessMacrosFromText(
   description: string,
 ): Promise<MacroGuess> {
-  const text = description.trim();
+  let text = description.trim();
   if (text.length < 2) throw new Error("Describe the food or recipe first");
+  if (text.length > MAX_GUESS_CHARS) {
+    text = `${text.slice(0, MAX_GUESS_CHARS)}\n…[truncated for estimate]`;
+  }
 
   const system = `You estimate nutrition macros for body-recomposition logging.
 The user describes a food, drink, recipe, or substitution in free text (any language).
@@ -36,6 +42,7 @@ Rules:
 - servingLabel should describe the assumed amount (e.g. "1 large cup (~300ml)", "1 plate", "150g cooked").
 - name should be short and log-friendly.
 - Be honest in rationale (1–2 sentences) about assumptions.
+- If the text was truncated, estimate from the ingredients/amounts you can see.
 
 Return ONLY valid JSON (no markdown):
 {"name":"string","servingLabel":"string","proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0,"rationale":"string"}`;

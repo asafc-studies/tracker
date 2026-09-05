@@ -28,6 +28,23 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Wait before retrying 429/5xx. Prefer Retry-After; else exponential backoff. */
+function retryDelayMs(res: Response, attempt: number) {
+  const h = res.headers.get("retry-after");
+  if (h) {
+    const sec = Number(h);
+    if (Number.isFinite(sec) && sec >= 0) {
+      return Math.min(Math.max(sec * 1000, 500), 30_000);
+    }
+    const when = Date.parse(h);
+    if (Number.isFinite(when)) {
+      return Math.min(Math.max(when - Date.now(), 500), 30_000);
+    }
+  }
+  // Medium/small free tiers are ~1 RPS; 1.5s was too short and burned a second slot.
+  return Math.min(3000 * 2 ** attempt, 15_000);
+}
+
 async function readResponseBody(res: Response) {
   const text = await res.text();
   if (!text) return { data: null as unknown, text: "" };
@@ -158,7 +175,8 @@ async function chatCompletionsOpenAICompatible(opts: {
   }
 
   let res: Response | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     res = await fetch(opts.url, {
       method: "POST",
       headers: {
@@ -169,10 +187,10 @@ async function chatCompletionsOpenAICompatible(opts: {
       body: JSON.stringify(body),
     });
     if (
-      attempt === 0 &&
+      attempt < maxAttempts - 1 &&
       (res.status === 429 || res.status === 502 || res.status === 503)
     ) {
-      await sleep(1500);
+      await sleep(retryDelayMs(res, attempt));
       continue;
     }
     break;
@@ -188,8 +206,13 @@ async function chatCompletionsOpenAICompatible(opts: {
 
   if (!res.ok) {
     const apiMsg = apiErrorMessage(raw, text, opts.providerLabel, res.status);
-    if (res.status === 429 || data.error?.code === "insufficient_quota") {
-      throw new Error(`${opts.providerLabel} quota/rate limit: ${apiMsg}`);
+    if (data.error?.code === "insufficient_quota") {
+      throw new Error(`${opts.providerLabel} quota exceeded: ${apiMsg}`);
+    }
+    if (res.status === 429) {
+      throw new Error(
+        `${opts.providerLabel} rate limited — wait a few seconds and retry. ${apiMsg}`,
+      );
     }
     if (res.status === 401 || res.status === 403) {
       throw new Error(
@@ -236,7 +259,7 @@ async function chatCompletionsGemini(opts: {
   if (!res.ok) {
     const apiMsg = apiErrorMessage(raw, text, "Gemini", res.status);
     if (res.status === 429) {
-      throw new Error(`Gemini quota/rate limit: ${apiMsg}`);
+      throw new Error(`Gemini rate limited — wait a few seconds and retry. ${apiMsg}`);
     }
     if (res.status === 400 || res.status === 403) {
       throw new Error(`Gemini auth/config (${res.status}): ${apiMsg}`);
@@ -338,7 +361,8 @@ export async function aiChatWithImage(opts: {
   const dataUrl = `data:${opts.mimeType};base64,${opts.imageBase64}`;
 
   let res: Response | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -361,10 +385,10 @@ export async function aiChatWithImage(opts: {
       }),
     });
     if (
-      attempt === 0 &&
+      attempt < maxAttempts - 1 &&
       (res.status === 429 || res.status === 502 || res.status === 503)
     ) {
-      await sleep(1500);
+      await sleep(retryDelayMs(res, attempt));
       continue;
     }
     break;
@@ -380,8 +404,13 @@ export async function aiChatWithImage(opts: {
 
   if (!res.ok) {
     const apiMsg = apiErrorMessage(raw, text, "Mistral", res.status);
-    if (res.status === 429 || data.error?.code === "insufficient_quota") {
-      throw new Error(`Mistral quota/rate limit: ${apiMsg}`);
+    if (data.error?.code === "insufficient_quota") {
+      throw new Error(`Mistral quota exceeded: ${apiMsg}`);
+    }
+    if (res.status === 429) {
+      throw new Error(
+        `Mistral rate limited — wait a few seconds and retry. ${apiMsg}`,
+      );
     }
     if (res.status === 401 || res.status === 403) {
       throw new Error(
