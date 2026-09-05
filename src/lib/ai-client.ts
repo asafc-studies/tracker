@@ -98,40 +98,76 @@ type RateWindow = {
 };
 
 /**
+ * Strip provider prefixes so "ratelimit" doesn't false-match "limit".
+ * x-ratelimit-remaining-req-minute → { kind: remaining, suffix: -req-minute }
+ */
+function rateLimitMetric(
+  key: string,
+): { kind: "remaining" | "limit"; suffix: string } | null {
+  const stripped = key
+    .toLowerCase()
+    .replace(/^x-/, "")
+    .replace(/^ratelimitbysize-/, "")
+    .replace(/^ratelimit-/, "");
+  if (stripped === "remaining" || stripped.startsWith("remaining-")) {
+    return {
+      kind: "remaining",
+      suffix: stripped === "remaining" ? "" : stripped.slice("remaining".length),
+    };
+  }
+  if (stripped === "limit" || stripped.startsWith("limit-")) {
+    return {
+      kind: "limit",
+      suffix: stripped === "limit" ? "" : stripped.slice("limit".length),
+    };
+  }
+  return null;
+}
+
+/**
  * Pair remaining/limit headers that share a window suffix
- * (e.g. both end with req-minute or tokens-minute).
+ * (e.g. both end with -req-minute or -tokens-minute).
  */
 function parseRateWindows(headers: Record<string, string>): RateWindow[] {
+  const bySuffix = new Map<
+    string,
+    { remaining?: number; limit?: number; kind: "requests" | "tokens" }
+  >();
+
+  for (const [key, raw] of Object.entries(headers)) {
+    const metric = rateLimitMetric(key);
+    if (!metric) continue;
+    const n = parseFinite(raw);
+    if (n == null) continue;
+    const kind = metric.suffix.includes("token") ? "tokens" : "requests";
+    const slot = bySuffix.get(metric.suffix) ?? { kind };
+    slot.kind = kind;
+    if (metric.kind === "remaining") slot.remaining = n;
+    else slot.limit = n;
+    bySuffix.set(metric.suffix, slot);
+  }
+
   const windows: RateWindow[] = [];
-  for (const [key, rawRem] of Object.entries(headers)) {
-    const remIdx = key.indexOf("remaining");
-    if (remIdx < 0) continue;
-    const suffix = key.slice(remIdx + "remaining".length); // e.g. "-req-minute"
-    const limitKey = Object.keys(headers).find((k) => {
-      const li = k.indexOf("limit");
-      if (li < 0) return false;
-      return k.slice(li + "limit".length) === suffix;
-    });
-    if (!limitKey) continue;
-
-    const remaining = parseFinite(rawRem);
-    const limit = parseFinite(headers[limitKey]);
-    // Mistral sometimes returns 0/0 junk — ignore those.
-    if (remaining == null || limit == null || limit <= 0) continue;
-
-    const kind = suffix.includes("token") ? "tokens" : "requests";
+  for (const [suffix, slot] of bySuffix) {
+    if (slot.remaining == null || slot.limit == null) continue;
     const label =
       suffix.replace(/^-+/, "").replace(/-/g, " ") ||
-      (kind === "tokens" ? "tokens" : "requests");
-    windows.push({ label, remaining, limit, kind });
+      (slot.kind === "tokens" ? "tokens" : "requests");
+    windows.push({
+      label,
+      remaining: slot.remaining,
+      limit: slot.limit,
+      kind: slot.kind,
+    });
   }
   return windows;
 }
 
 function guessWaitFromWindows(windows: RateWindow[]): string | null {
-  const depleted = windows.filter((w) => w.remaining <= 0);
-  if (!depleted.length) return null;
-  const labels = depleted.map((w) => w.label).join(" ");
+  const depleted = windows.filter((w) => w.remaining <= 0 || w.limit <= 0);
+  const pool = depleted.length ? depleted : windows;
+  if (!pool.length) return null;
+  const labels = pool.map((w) => w.label).join(" ");
   if (/\bsecond\b|\bsec\b|\brps\b/.test(labels)) {
     return "try again in ~2s (per-second window)";
   }
@@ -150,7 +186,7 @@ function guessWaitFromWindows(windows: RateWindow[]): string | null {
 
 /**
  * Human-readable rate-limit hint from response headers.
- * Mistral uses names like x-ratelimit-remaining-req-minute / ratelimitbysize-reset.
+ * Mistral uses names like x-ratelimit-remaining-req-minute.
  */
 function rateLimitHint(res: Response): string {
   const headers = collectRateLimitHeaders(res);
@@ -170,20 +206,29 @@ function rateLimitHint(res: Response): string {
       "ratelimit-reset",
       "ratelimitbysize-reset",
     ) ??
-    Object.entries(headers).find(([k]) => k.includes("reset"))?.[1];
+    Object.entries(headers).find(([k]) => {
+      const m = rateLimitMetric(k);
+      return !m && k.includes("reset");
+    })?.[1];
 
   const windows = parseRateWindows(headers);
-  // Prefer depleted windows; otherwise show the tightest remaining ratio.
   const ranked = [...windows].sort((a, b) => {
-    const aEmpty = a.remaining <= 0 ? 0 : 1;
-    const bEmpty = b.remaining <= 0 ? 0 : 1;
+    const aEmpty = a.remaining <= 0 || a.limit <= 0 ? 0 : 1;
+    const bEmpty = b.remaining <= 0 || b.limit <= 0 ? 0 : 1;
     if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+    if (a.limit <= 0 && b.limit <= 0) return 0;
+    if (a.limit <= 0) return 1;
+    if (b.limit <= 0) return -1;
     return a.remaining / a.limit - b.remaining / b.limit;
   });
 
   const parts: string[] = [];
   for (const w of ranked.slice(0, 2)) {
-    parts.push(`${w.remaining}/${w.limit} ${w.label} left`);
+    if (w.limit <= 0) {
+      parts.push(`${w.label} blocked (limit ${w.limit})`);
+    } else {
+      parts.push(`${w.remaining}/${w.limit} ${w.label} left`);
+    }
   }
 
   const resetAt = parseResetAtMs(resetRaw);
