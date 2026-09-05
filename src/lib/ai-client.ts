@@ -84,15 +84,68 @@ function headerPick(
   return undefined;
 }
 
-/** First header whose name includes all of the given needles. */
-function headerFind(
-  headers: Record<string, string>,
-  ...needles: string[]
-): string | undefined {
-  for (const [key, value] of Object.entries(headers)) {
-    if (needles.every((n) => key.includes(n))) return value;
+function parseFinite(raw: string | undefined): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+type RateWindow = {
+  label: string;
+  remaining: number;
+  limit: number;
+  kind: "requests" | "tokens";
+};
+
+/**
+ * Pair remaining/limit headers that share a window suffix
+ * (e.g. both end with req-minute or tokens-minute).
+ */
+function parseRateWindows(headers: Record<string, string>): RateWindow[] {
+  const windows: RateWindow[] = [];
+  for (const [key, rawRem] of Object.entries(headers)) {
+    const remIdx = key.indexOf("remaining");
+    if (remIdx < 0) continue;
+    const suffix = key.slice(remIdx + "remaining".length); // e.g. "-req-minute"
+    const limitKey = Object.keys(headers).find((k) => {
+      const li = k.indexOf("limit");
+      if (li < 0) return false;
+      return k.slice(li + "limit".length) === suffix;
+    });
+    if (!limitKey) continue;
+
+    const remaining = parseFinite(rawRem);
+    const limit = parseFinite(headers[limitKey]);
+    // Mistral sometimes returns 0/0 junk — ignore those.
+    if (remaining == null || limit == null || limit <= 0) continue;
+
+    const kind = suffix.includes("token") ? "tokens" : "requests";
+    const label =
+      suffix.replace(/^-+/, "").replace(/-/g, " ") ||
+      (kind === "tokens" ? "tokens" : "requests");
+    windows.push({ label, remaining, limit, kind });
   }
-  return undefined;
+  return windows;
+}
+
+function guessWaitFromWindows(windows: RateWindow[]): string | null {
+  const depleted = windows.filter((w) => w.remaining <= 0);
+  if (!depleted.length) return null;
+  const labels = depleted.map((w) => w.label).join(" ");
+  if (/\bsecond\b|\bsec\b|\brps\b/.test(labels)) {
+    return "try again in ~2s (per-second window)";
+  }
+  if (/\bhour\b/.test(labels)) return "try again in ~1h (hourly window)";
+  if (/\bday\b|\bdaily\b/.test(labels)) {
+    return "try again tomorrow (daily window)";
+  }
+  if (/\bmonth\b/.test(labels)) {
+    return "try again next month (monthly window)";
+  }
+  if (/\bminute\b|\bmin\b|\bmins\b/.test(labels)) {
+    return "try again in ~1 min (per-minute window)";
+  }
+  return "try again in ~1 min";
 }
 
 /**
@@ -110,71 +163,27 @@ function rateLimitHint(res: Response): string {
   const resetRaw =
     headerPick(
       headers,
+      "retry-after",
       "x-ratelimit-reset",
       "x-ratelimit-reset-requests",
       "x-ratelimit-reset-tokens",
       "ratelimit-reset",
       "ratelimitbysize-reset",
-      "retry-after",
     ) ??
-    headerFind(headers, "reset", "request") ??
-    headerFind(headers, "reset", "token") ??
-    headerFind(headers, "reset") ??
-    headerPick(headers, "retry-after");
+    Object.entries(headers).find(([k]) => k.includes("reset"))?.[1];
 
-  const remaining =
-    headerPick(
-      headers,
-      "x-ratelimit-remaining-req-minute",
-      "x-ratelimit-remaining-requests",
-      "x-ratelimit-remaining",
-      "ratelimit-remaining",
-      "ratelimitbysize-remaining",
-      "x-ratelimitbysize-remaining-minute",
-      "x-ratelimitbysize-remaining-month",
-    ) ??
-    headerFind(headers, "remaining", "req") ??
-    headerFind(headers, "remaining", "request") ??
-    headerFind(headers, "remaining");
-
-  const limit =
-    headerPick(
-      headers,
-      "x-ratelimit-limit-req-minute",
-      "x-ratelimit-limit-requests",
-      "x-ratelimit-limit",
-      "ratelimit-limit",
-      "ratelimitbysize-limit",
-      "x-ratelimitbysize-limit-minute",
-      "x-ratelimitbysize-limit-month",
-    ) ??
-    headerFind(headers, "limit", "req") ??
-    headerFind(headers, "limit", "request") ??
-    headerFind(headers, "limit");
-
-  const tokenRemaining =
-    headerPick(
-      headers,
-      "x-ratelimit-remaining-tokens-minute",
-      "x-ratelimit-remaining-tokens",
-    ) ?? headerFind(headers, "remaining", "token");
-  const tokenLimit =
-    headerPick(
-      headers,
-      "x-ratelimit-limit-tokens-minute",
-      "x-ratelimit-limit-tokens",
-    ) ?? headerFind(headers, "limit", "token");
+  const windows = parseRateWindows(headers);
+  // Prefer depleted windows; otherwise show the tightest remaining ratio.
+  const ranked = [...windows].sort((a, b) => {
+    const aEmpty = a.remaining <= 0 ? 0 : 1;
+    const bEmpty = b.remaining <= 0 ? 0 : 1;
+    if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+    return a.remaining / a.limit - b.remaining / b.limit;
+  });
 
   const parts: string[] = [];
-
-  if (remaining != null && limit != null) {
-    parts.push(`${remaining}/${limit} requests left in window`);
-  } else if (remaining != null) {
-    parts.push(`${remaining} requests left in window`);
-  }
-
-  if (tokenRemaining != null && tokenLimit != null) {
-    parts.push(`${tokenRemaining}/${tokenLimit} tokens left in window`);
+  for (const w of ranked.slice(0, 2)) {
+    parts.push(`${w.remaining}/${w.limit} ${w.label} left`);
   }
 
   const resetAt = parseResetAtMs(resetRaw);
@@ -187,17 +196,16 @@ function rateLimitHint(res: Response): string {
         `try again in ${formatWait(waitMs)} (resets ~${formatLocalTime(resetAt)})`,
       );
     }
-  } else if (remaining === "0" || remaining === "0.0") {
-    // Common on Mistral: remaining-req-minute with no reset header.
-    parts.push("try again in ~1 min (per-minute window)");
+  } else {
+    const guessed = guessWaitFromWindows(windows);
+    if (guessed) parts.push(guessed);
   }
 
   if (parts.length) return parts.join("; ");
 
-  // Last resort: dump raw header keys so Vercel logs / UI aren't empty.
   const keys = Object.keys(headers);
   if (keys.length) {
-    return `rate-limit headers present but no reset (${keys.join(", ")})`;
+    return `rate-limit headers present but unusable (${keys.join(", ")})`;
   }
   return "wait a few seconds and retry (provider sent no reset headers)";
 }
@@ -215,7 +223,7 @@ function retryDelayMs(res: Response, attempt: number) {
       "ratelimit-reset",
       "ratelimitbysize-reset",
     ) ??
-    headerFind(headers, "reset");
+    Object.entries(headers).find(([k]) => k.includes("reset"))?.[1];
   const resetAt = parseResetAtMs(resetRaw);
   if (resetAt != null) {
     const wait = resetAt - Date.now();
