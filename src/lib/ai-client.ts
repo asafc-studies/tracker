@@ -29,7 +29,7 @@ function sleep(ms: number) {
 }
 
 /** Parse Retry-After or X-RateLimit-Reset into an absolute UTC ms timestamp. */
-function parseResetAtMs(raw: string | null): number | null {
+function parseResetAtMs(raw: string | null | undefined): number | null {
   if (!raw?.trim()) return null;
   const s = raw.trim();
   const n = Number(s);
@@ -63,20 +63,108 @@ function formatLocalTime(atMs: number) {
   }
 }
 
+/** Mistral/OpenAI-style limit headers vary a lot — collect every match. */
+function collectRateLimitHeaders(res: Response): Record<string, string> {
+  const out: Record<string, string> = {};
+  res.headers.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (k.includes("ratelimit") || k === "retry-after") out[k] = value;
+  });
+  return out;
+}
+
+function headerPick(
+  headers: Record<string, string>,
+  ...names: string[]
+): string | undefined {
+  for (const name of names) {
+    const v = headers[name.toLowerCase()];
+    if (v != null && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** First header whose name includes all of the given needles. */
+function headerFind(
+  headers: Record<string, string>,
+  ...needles: string[]
+): string | undefined {
+  for (const [key, value] of Object.entries(headers)) {
+    if (needles.every((n) => key.includes(n))) return value;
+  }
+  return undefined;
+}
+
 /**
- * Human-readable rate-limit hint from response headers (Retry-After /
- * X-RateLimit-*). Safe when headers are missing.
+ * Human-readable rate-limit hint from response headers.
+ * Mistral uses names like x-ratelimit-remaining-req-minute / ratelimitbysize-reset.
  */
 function rateLimitHint(res: Response): string {
-  // Prefer window reset for the user message; Retry-After is often only a short backoff.
-  const resetAt =
-    parseResetAtMs(res.headers.get("x-ratelimit-reset")) ??
-    parseResetAtMs(res.headers.get("x-ratelimit-reset-requests")) ??
-    parseResetAtMs(res.headers.get("x-ratelimit-reset-tokens")) ??
-    parseResetAtMs(res.headers.get("retry-after"));
+  const headers = collectRateLimitHeaders(res);
+  if (Object.keys(headers).length === 0) {
+    console.warn("[ai] 429 with no rate-limit headers");
+  } else {
+    console.warn("[ai] rate-limit headers", headers);
+  }
 
-  const remaining = res.headers.get("x-ratelimit-remaining");
-  const limit = res.headers.get("x-ratelimit-limit");
+  const resetRaw =
+    headerPick(
+      headers,
+      "x-ratelimit-reset",
+      "x-ratelimit-reset-requests",
+      "x-ratelimit-reset-tokens",
+      "ratelimit-reset",
+      "ratelimitbysize-reset",
+      "retry-after",
+    ) ??
+    headerFind(headers, "reset", "request") ??
+    headerFind(headers, "reset", "token") ??
+    headerFind(headers, "reset") ??
+    headerPick(headers, "retry-after");
+
+  const remaining =
+    headerPick(
+      headers,
+      "x-ratelimit-remaining-req-minute",
+      "x-ratelimit-remaining-requests",
+      "x-ratelimit-remaining",
+      "ratelimit-remaining",
+      "ratelimitbysize-remaining",
+      "x-ratelimitbysize-remaining-minute",
+      "x-ratelimitbysize-remaining-month",
+    ) ??
+    headerFind(headers, "remaining", "req") ??
+    headerFind(headers, "remaining", "request") ??
+    headerFind(headers, "remaining");
+
+  const limit =
+    headerPick(
+      headers,
+      "x-ratelimit-limit-req-minute",
+      "x-ratelimit-limit-requests",
+      "x-ratelimit-limit",
+      "ratelimit-limit",
+      "ratelimitbysize-limit",
+      "x-ratelimitbysize-limit-minute",
+      "x-ratelimitbysize-limit-month",
+    ) ??
+    headerFind(headers, "limit", "req") ??
+    headerFind(headers, "limit", "request") ??
+    headerFind(headers, "limit");
+
+  const tokenRemaining =
+    headerPick(
+      headers,
+      "x-ratelimit-remaining-tokens-minute",
+      "x-ratelimit-remaining-tokens",
+    ) ?? headerFind(headers, "remaining", "token");
+  const tokenLimit =
+    headerPick(
+      headers,
+      "x-ratelimit-limit-tokens-minute",
+      "x-ratelimit-limit-tokens",
+    ) ?? headerFind(headers, "limit", "token");
+
   const parts: string[] = [];
 
   if (remaining != null && limit != null) {
@@ -85,6 +173,11 @@ function rateLimitHint(res: Response): string {
     parts.push(`${remaining} requests left in window`);
   }
 
+  if (tokenRemaining != null && tokenLimit != null) {
+    parts.push(`${tokenRemaining}/${tokenLimit} tokens left in window`);
+  }
+
+  const resetAt = parseResetAtMs(resetRaw);
   if (resetAt != null) {
     const waitMs = resetAt - Date.now();
     if (waitMs <= 0) {
@@ -94,18 +187,36 @@ function rateLimitHint(res: Response): string {
         `try again in ${formatWait(waitMs)} (resets ~${formatLocalTime(resetAt)})`,
       );
     }
+  } else if (remaining === "0" || remaining === "0.0") {
+    // Common on Mistral: remaining-req-minute with no reset header.
+    parts.push("try again in ~1 min (per-minute window)");
   }
 
-  return parts.length ? parts.join("; ") : "wait a few seconds and retry";
+  if (parts.length) return parts.join("; ");
+
+  // Last resort: dump raw header keys so Vercel logs / UI aren't empty.
+  const keys = Object.keys(headers);
+  if (keys.length) {
+    return `rate-limit headers present but no reset (${keys.join(", ")})`;
+  }
+  return "wait a few seconds and retry (provider sent no reset headers)";
 }
 
 /** Wait before retrying 429/5xx. Prefer Retry-After / reset headers; else backoff. */
 function retryDelayMs(res: Response, attempt: number) {
-  const resetAt =
-    parseResetAtMs(res.headers.get("retry-after")) ??
-    parseResetAtMs(res.headers.get("x-ratelimit-reset")) ??
-    parseResetAtMs(res.headers.get("x-ratelimit-reset-requests")) ??
-    parseResetAtMs(res.headers.get("x-ratelimit-reset-tokens"));
+  const headers = collectRateLimitHeaders(res);
+  const resetRaw =
+    headerPick(headers, "retry-after") ??
+    headerPick(
+      headers,
+      "x-ratelimit-reset",
+      "x-ratelimit-reset-requests",
+      "x-ratelimit-reset-tokens",
+      "ratelimit-reset",
+      "ratelimitbysize-reset",
+    ) ??
+    headerFind(headers, "reset");
+  const resetAt = parseResetAtMs(resetRaw);
   if (resetAt != null) {
     const wait = resetAt - Date.now();
     // Cap so a serverless invoke doesn't sleep for an hourly/daily window.
