@@ -164,7 +164,11 @@ function parseRateWindows(headers: Record<string, string>): RateWindow[] {
 }
 
 function guessWaitFromWindows(windows: RateWindow[]): string | null {
-  const depleted = windows.filter((w) => w.remaining <= 0 || w.limit <= 0);
+  const zeroLimit = windows.some((w) => w.limit <= 0);
+  if (zeroLimit) {
+    return "this model has 0 RPM on your Mistral plan — switch MISTRAL_MODEL / AI_MODEL (e.g. ministral-8b-2512 or mistral-small-latest)";
+  }
+  const depleted = windows.filter((w) => w.remaining <= 0);
   const pool = depleted.length ? depleted : windows;
   if (!pool.length) return null;
   const labels = pool.map((w) => w.label).join(" ");
@@ -380,13 +384,63 @@ export function resolveAiProvider(): ResolvedProvider {
 
 export function extractJsonObject(text: string): string {
   const trimmed = text.trim();
-  if (trimmed.startsWith("{")) return trimmed;
   const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence?.[1]) return fence[1].trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  return trimmed;
+  const candidate = (fence?.[1] ?? trimmed).trim();
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start >= 0 && end > start) return candidate.slice(start, end + 1);
+  return candidate;
+}
+
+/** Parse model JSON; tolerate fences, fancy quotes, trailing commas. */
+export function parseJsonObjectLoose(text: string): Record<string, unknown> {
+  let raw = extractJsonObject(text)
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036\u00AB\u00BB]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+
+  for (const attempt of [raw, raw.replace(/,\s*([}\]])/g, "$1")]) {
+    try {
+      const v = JSON.parse(attempt) as unknown;
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        return v as Record<string, unknown>;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  // Last resort: scrape known scalar fields from a broken object.
+  const out: Record<string, unknown> = {};
+  const str = (key: string) => {
+    const m = raw.match(
+      new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, "s"),
+    );
+    return m?.[1]
+      ?.replace(/\\"/g, '"')
+      .replace(/\\n/g, "\n")
+      .replace(/\\\\/g, "\\");
+  };
+  const num = (key: string) => {
+    const m = raw.match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+    return m ? Number(m[1]) : undefined;
+  };
+  for (const key of ["name", "servingLabel", "rationale"] as const) {
+    const v = str(key);
+    if (v != null) out[key] = v;
+  }
+  for (const key of [
+    "proteinG",
+    "carbsG",
+    "fatG",
+    "fiberG",
+    "calories",
+  ] as const) {
+    const v = num(key);
+    if (v != null) out[key] = v;
+  }
+  if (typeof out.name === "string" && out.name.trim()) return out;
+  throw new Error("Could not parse AI JSON");
 }
 
 async function chatCompletionsOpenAICompatible(opts: {
@@ -398,12 +452,14 @@ async function chatCompletionsOpenAICompatible(opts: {
   providerLabel: string;
   useJsonObjectFormat?: boolean;
   temperature?: number;
+  maxTokens?: number;
 }) {
   const body: Record<string, unknown> = {
     model: opts.model,
     temperature: opts.temperature ?? 0.55,
     messages: opts.messages,
   };
+  if (opts.maxTokens != null) body.max_tokens = opts.maxTokens;
   if (opts.useJsonObjectFormat !== false) {
     body.response_format = { type: "json_object" };
   }
@@ -445,7 +501,7 @@ async function chatCompletionsOpenAICompatible(opts: {
     }
     if (res.status === 429) {
       throw new Error(
-        `${opts.providerLabel} rate limited — ${rateLimitHint(res)}. ${apiMsg}`,
+        `${opts.providerLabel} rate limited (${opts.model}) — ${rateLimitHint(res)}. ${apiMsg}`,
       );
     }
     if (res.status === 401 || res.status === 403) {
@@ -467,6 +523,7 @@ async function chatCompletionsGemini(opts: {
   system: string;
   user: string;
   temperature?: number;
+  maxTokens?: number;
 }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
   const res = await fetch(url, {
@@ -478,6 +535,9 @@ async function chatCompletionsGemini(opts: {
       generationConfig: {
         temperature: opts.temperature ?? 0.55,
         responseMimeType: "application/json",
+        ...(opts.maxTokens != null
+          ? { maxOutputTokens: opts.maxTokens }
+          : {}),
       },
     }),
   });
@@ -514,6 +574,7 @@ export async function aiChatJson(opts: {
   system: string;
   user: string;
   temperature?: number;
+  maxTokens?: number;
 }): Promise<{ content: string; model: string }> {
   const provider = resolveAiProvider();
   const messages: ChatMessage[] = [
@@ -535,6 +596,7 @@ export async function aiChatJson(opts: {
       providerLabel: "GitHub Models",
       useJsonObjectFormat: false,
       temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
     });
   } else if (provider.id === "gemini") {
     content = await chatCompletionsGemini({
@@ -543,6 +605,7 @@ export async function aiChatJson(opts: {
       system: opts.system,
       user: opts.user,
       temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
     });
   } else if (provider.id === "mistral") {
     content = await chatCompletionsOpenAICompatible({
@@ -553,6 +616,7 @@ export async function aiChatJson(opts: {
       providerLabel: "Mistral",
       useJsonObjectFormat: true,
       temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
     });
   } else {
     content = await chatCompletionsOpenAICompatible({
@@ -563,6 +627,7 @@ export async function aiChatJson(opts: {
       providerLabel: "OpenAI",
       useJsonObjectFormat: true,
       temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
     });
   }
 
@@ -643,7 +708,7 @@ export async function aiChatWithImage(opts: {
     }
     if (res.status === 429) {
       throw new Error(
-        `Mistral rate limited — ${rateLimitHint(res)}. ${apiMsg}`,
+        `Mistral rate limited (${model}) — ${rateLimitHint(res)}. ${apiMsg}`,
       );
     }
     if (res.status === 401 || res.status === 403) {

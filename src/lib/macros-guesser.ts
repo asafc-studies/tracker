@@ -1,4 +1,4 @@
-import { aiChatJson, extractJsonObject } from "@/lib/ai-client";
+import { aiChatJson, parseJsonObjectLoose } from "@/lib/ai-client";
 import { caloriesFromMacros } from "@/lib/macros";
 
 export type MacroGuess = {
@@ -36,27 +36,34 @@ Infer a realistic single log entry for what they likely ate/drank.
 
 Rules:
 - Prefer common Israeli / Mediterranean portions when ambiguous (e.g. "big cup of coffee").
+- If they paste a full recipe (many ingredients / cook steps), estimate ONE typical cooked serving of the finished dish (e.g. 1 piece / ~150–200g chicken with coating+glaze), NOT the entire batch (not 1kg).
 - If they mention swaps ("I changed X with Y", size W), apply those to the estimate.
 - Macros must be internally consistent (calories ≈ P×4 + C×4 + F×9, ±15 kcal OK).
 - fiberG is dietary fiber in grams (0 when none / unknown).
-- servingLabel should describe the assumed amount (e.g. "1 large cup (~300ml)", "1 plate", "150g cooked").
-- name should be short and log-friendly.
-- Be honest in rationale (1–2 sentences) about assumptions.
+- servingLabel should describe the assumed amount (e.g. "1 piece (~180g cooked)", "1 plate").
+- name should be short and log-friendly (Hebrew OK).
+- rationale: one short sentence; do not use quotation marks inside it.
 - If the text was truncated, estimate from the ingredients/amounts you can see.
+- All macro fields must be JSON numbers, not strings.
 
-Return ONLY valid JSON (no markdown):
+Return ONLY valid JSON (no markdown, no extra text):
 {"name":"string","servingLabel":"string","proteinG":0,"carbsG":0,"fatG":0,"fiberG":0,"calories":0,"rationale":"string"}`;
 
   const { content, model } = await aiChatJson({
     system,
     user: text,
-    temperature: 0.3,
+    temperature: 0.2,
+    maxTokens: 500,
   });
 
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(extractJsonObject(content)) as Record<string, unknown>;
+    parsed = parseJsonObjectLoose(content);
   } catch {
+    console.error(
+      "[macros/guess] bad JSON from model:",
+      content.slice(0, 400),
+    );
     throw new Error("Could not parse AI macro guess");
   }
 
