@@ -28,18 +28,88 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Wait before retrying 429/5xx. Prefer Retry-After; else exponential backoff. */
+/** Parse Retry-After or X-RateLimit-Reset into an absolute UTC ms timestamp. */
+function parseResetAtMs(raw: string | null): number | null {
+  if (!raw?.trim()) return null;
+  const s = raw.trim();
+  const n = Number(s);
+  if (Number.isFinite(n) && n >= 0) {
+    if (n > 1e12) return n; // epoch ms
+    if (n > 1e9) return n * 1000; // epoch seconds
+    return Date.now() + n * 1000; // relative seconds
+  }
+  const when = Date.parse(s);
+  return Number.isFinite(when) ? when : null;
+}
+
+function formatWait(ms: number) {
+  const sec = Math.max(1, Math.ceil(ms / 1000));
+  if (sec < 60) return `~${sec}s`;
+  const min = Math.ceil(sec / 60);
+  if (min < 60) return `~${min} min`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin ? `~${hr}h ${remMin}m` : `~${hr}h`;
+}
+
+function formatLocalTime(atMs: number) {
+  try {
+    return new Date(atMs).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return new Date(atMs).toISOString();
+  }
+}
+
+/**
+ * Human-readable rate-limit hint from response headers (Retry-After /
+ * X-RateLimit-*). Safe when headers are missing.
+ */
+function rateLimitHint(res: Response): string {
+  // Prefer window reset for the user message; Retry-After is often only a short backoff.
+  const resetAt =
+    parseResetAtMs(res.headers.get("x-ratelimit-reset")) ??
+    parseResetAtMs(res.headers.get("x-ratelimit-reset-requests")) ??
+    parseResetAtMs(res.headers.get("x-ratelimit-reset-tokens")) ??
+    parseResetAtMs(res.headers.get("retry-after"));
+
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  const limit = res.headers.get("x-ratelimit-limit");
+  const parts: string[] = [];
+
+  if (remaining != null && limit != null) {
+    parts.push(`${remaining}/${limit} requests left in window`);
+  } else if (remaining != null) {
+    parts.push(`${remaining} requests left in window`);
+  }
+
+  if (resetAt != null) {
+    const waitMs = resetAt - Date.now();
+    if (waitMs <= 0) {
+      parts.push("limit window already resetting — retry now");
+    } else {
+      parts.push(
+        `try again in ${formatWait(waitMs)} (resets ~${formatLocalTime(resetAt)})`,
+      );
+    }
+  }
+
+  return parts.length ? parts.join("; ") : "wait a few seconds and retry";
+}
+
+/** Wait before retrying 429/5xx. Prefer Retry-After / reset headers; else backoff. */
 function retryDelayMs(res: Response, attempt: number) {
-  const h = res.headers.get("retry-after");
-  if (h) {
-    const sec = Number(h);
-    if (Number.isFinite(sec) && sec >= 0) {
-      return Math.min(Math.max(sec * 1000, 500), 30_000);
-    }
-    const when = Date.parse(h);
-    if (Number.isFinite(when)) {
-      return Math.min(Math.max(when - Date.now(), 500), 30_000);
-    }
+  const resetAt =
+    parseResetAtMs(res.headers.get("retry-after")) ??
+    parseResetAtMs(res.headers.get("x-ratelimit-reset")) ??
+    parseResetAtMs(res.headers.get("x-ratelimit-reset-requests")) ??
+    parseResetAtMs(res.headers.get("x-ratelimit-reset-tokens"));
+  if (resetAt != null) {
+    const wait = resetAt - Date.now();
+    // Cap so a serverless invoke doesn't sleep for an hourly/daily window.
+    if (wait > 0) return Math.min(Math.max(wait, 500), 30_000);
   }
   // Medium/small free tiers are ~1 RPS; 1.5s was too short and burned a second slot.
   return Math.min(3000 * 2 ** attempt, 15_000);
@@ -211,7 +281,7 @@ async function chatCompletionsOpenAICompatible(opts: {
     }
     if (res.status === 429) {
       throw new Error(
-        `${opts.providerLabel} rate limited — wait a few seconds and retry. ${apiMsg}`,
+        `${opts.providerLabel} rate limited — ${rateLimitHint(res)}. ${apiMsg}`,
       );
     }
     if (res.status === 401 || res.status === 403) {
@@ -259,7 +329,7 @@ async function chatCompletionsGemini(opts: {
   if (!res.ok) {
     const apiMsg = apiErrorMessage(raw, text, "Gemini", res.status);
     if (res.status === 429) {
-      throw new Error(`Gemini rate limited — wait a few seconds and retry. ${apiMsg}`);
+      throw new Error(`Gemini rate limited — ${rateLimitHint(res)}. ${apiMsg}`);
     }
     if (res.status === 400 || res.status === 403) {
       throw new Error(`Gemini auth/config (${res.status}): ${apiMsg}`);
@@ -409,7 +479,7 @@ export async function aiChatWithImage(opts: {
     }
     if (res.status === 429) {
       throw new Error(
-        `Mistral rate limited — wait a few seconds and retry. ${apiMsg}`,
+        `Mistral rate limited — ${rateLimitHint(res)}. ${apiMsg}`,
       );
     }
     if (res.status === 401 || res.status === 403) {
